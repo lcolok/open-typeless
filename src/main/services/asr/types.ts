@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import type { ASRProvider } from '../../../shared/types/asr';
 
 // ============================================================================
 // Volcengine WebSocket Protocol Schemas
@@ -71,6 +72,50 @@ export interface VolcengineClientConfig {
   appId: string;
   accessToken: string;
   resourceId: string;
+}
+
+/**
+ * Configuration for SiliconFlow transcription client.
+ */
+export interface SiliconflowClientConfig {
+  baseUrl: string;
+  model: string;
+  language: string;
+  apiKey?: string;
+}
+
+/**
+ * Provider-resolved ASR configuration.
+ */
+export type ResolvedASRConfig =
+  | ({
+      provider: 'volcengine';
+    } & VolcengineClientConfig)
+  | ({
+      provider: 'siliconflow';
+    } & SiliconflowClientConfig);
+
+export interface BaseASRClientEvents {
+  result: (result: import('../../../shared/types/asr').ASRResult) => void;
+  status: (status: import('../../../shared/types/asr').ASRStatus) => void;
+  error: (error: Error) => void;
+}
+
+export interface ASRClient {
+  readonly isConnected: boolean;
+  connect(): Promise<void>;
+  disconnect(): void;
+  sendAudio(chunk: ArrayBuffer): void;
+  finishAudio(): void;
+  on<K extends keyof BaseASRClientEvents>(
+    event: K,
+    listener: BaseASRClientEvents[K]
+  ): this;
+  off<K extends keyof BaseASRClientEvents>(
+    event: K,
+    listener: BaseASRClientEvents[K]
+  ): this;
+  removeAllListeners(): this;
 }
 
 /**
@@ -151,4 +196,10 @@ export const VOLCENGINE_CONSTANTS = {
     BASE_DELAY_MS: 1000,
     MAX_DELAY_MS: 30000,
   },
+} as const;
+
+export const SILICONFLOW_CONSTANTS = {
+  DEFAULT_BASE_URL: 'https://copilot.logic.heiyu.space/providers/siliconflow/v1',
+  DEFAULT_MODEL: 'TeleAI/TeleSpeechASR',
+  DEFAULT_LANGUAGE: 'zh',
 } as const;

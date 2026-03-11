@@ -3,13 +3,19 @@
  * Used by both main process and renderer process.
  */
 
+export type ASRProvider = 'volcengine' | 'siliconflow';
+
 /**
- * ASR configuration for Volcengine service.
+ * ASR configuration shared across providers.
  */
 export interface ASRConfig {
-  appId: string;
-  accessToken: string;
-  resourceId: string; // "volc.bigasr.sauc.duration"
+  provider?: ASRProvider;
+  appId?: string;
+  accessToken?: string;
+  resourceId?: string;
+  baseUrl?: string;
+  model?: string;
+  language?: string;
 }
 
 /**

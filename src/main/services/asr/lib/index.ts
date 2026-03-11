@@ -5,6 +5,8 @@
 
 export { VolcengineClient } from './volcengine-client';
 export type { VolcengineClientEvents } from './volcengine-client';
+export { SiliconflowClient } from './siliconflow-client';
+export type { SiliconflowClientEvents } from './siliconflow-client';
 
 export {
   loadASRConfig,

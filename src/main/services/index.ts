@@ -11,10 +11,12 @@ export {
   stopASR,
   getASRStatus,
   VolcengineClient,
+  SiliconflowClient,
   loadASRConfig,
   isASRConfigured,
   ConfigurationError,
   VOLCENGINE_CONSTANTS,
+  SILICONFLOW_CONSTANTS,
 } from './asr';
 
 export type {
@@ -22,7 +24,11 @@ export type {
   StartASRResponse,
   StopASRResponse,
   VolcengineClientEvents,
+  SiliconflowClientEvents,
   ASREnvConfig,
+  ASRClient,
+  SiliconflowClientConfig,
+  ResolvedASRConfig,
   VolcengineClientConfig,
   ConnectionState,
 } from './asr';

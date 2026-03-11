@@ -6,10 +6,11 @@
 
 import { EventEmitter } from 'events';
 import log from 'electron-log';
-import { VolcengineClient } from './lib/volcengine-client';
+import { SiliconflowClient, VolcengineClient } from './lib';
 import { loadASRConfig, ConfigurationError } from './lib/config';
 import { floatingWindow } from '../../windows';
 import type { ASRConfig, ASRResult, ASRStatus } from '../../../shared/types/asr';
+import type { ASRClient, ResolvedASRConfig } from './types';
 
 const logger = log.scope('asr-service');
 
@@ -57,10 +58,11 @@ export interface ASRService {
  * ```
  */
 export class ASRService extends EventEmitter {
-  private client: VolcengineClient | null = null;
+  private client: ASRClient | null = null;
   private status: ASRStatus = 'idle';
   private finalResult: ASRResult | null = null;
   private lastResult: ASRResult | null = null;
+  private sessionGeneration = 0;
 
   /**
    * Get current ASR status.
@@ -84,6 +86,7 @@ export class ASRService extends EventEmitter {
 
     logger.info('Starting ASR session');
     this.reset();
+    const generation = ++this.sessionGeneration;
 
     // Load configuration from environment
     let envConfig;
@@ -101,27 +104,37 @@ export class ASRService extends EventEmitter {
     }
 
     // Merge with optional runtime config
-    const clientConfig = {
-      appId: config?.appId ?? envConfig.appId,
-      accessToken: config?.accessToken ?? envConfig.accessToken,
-      resourceId: config?.resourceId ?? envConfig.resourceId,
-    };
-
-    // Create Volcengine client
-    this.client = new VolcengineClient(clientConfig);
+    const clientConfig = this.resolveConfig(envConfig, config);
+    const client = this.createClient(clientConfig);
+    this.client = client;
 
     // Setup event forwarding
-    this.setupClientListeners();
+    this.setupClientListeners(client, generation);
 
     // Show floating window and update status
     this.updateStatus('connecting');
 
-    // Connect to Volcengine service
+    // Connect to ASR service
     try {
-      await this.client.connect();
+      await client.connect();
+
+      if (generation !== this.sessionGeneration || this.client !== client) {
+        logger.warn('Discarding stale ASR start result', { generation });
+        client.removeAllListeners();
+        client.disconnect();
+        return;
+      }
+
       logger.info('ASR session started successfully');
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
+      if (generation !== this.sessionGeneration) {
+        logger.warn('Ignoring stale ASR start failure', {
+          generation,
+          error: err.message,
+        });
+        return;
+      }
       logger.error('Failed to connect to ASR service', { error: err.message });
       this.updateStatus('error');
       this.emit('error', err);
@@ -202,16 +215,20 @@ export class ASRService extends EventEmitter {
   }
 
   /**
-   * Setup event listeners on the Volcengine client.
+   * Setup event listeners on the provider client.
    */
-  private setupClientListeners(): void {
-    if (!this.client) return;
-
-    this.client.on('status', (status) => {
+  private setupClientListeners(client: ASRClient, generation: number): void {
+    client.on('status', (status) => {
+      if (generation !== this.sessionGeneration || client !== this.client) {
+        return;
+      }
       this.updateStatus(status);
     });
 
-    this.client.on('result', (result) => {
+    client.on('result', (result) => {
+      if (generation !== this.sessionGeneration || client !== this.client) {
+        return;
+      }
       this.lastResult = result;
 
       if (result.isFinal) {
@@ -222,8 +239,11 @@ export class ASRService extends EventEmitter {
       floatingWindow.sendResult(result);
     });
 
-    this.client.on('error', (error) => {
-      logger.error('Volcengine client error', { message: error.message });
+    client.on('error', (error) => {
+      if (generation !== this.sessionGeneration || client !== this.client) {
+        return;
+      }
+      logger.error('ASR client error', { message: error.message });
       this.updateStatus('error');
       this.emit('error', error);
       floatingWindow.sendError(error.message);
@@ -289,6 +309,7 @@ export class ASRService extends EventEmitter {
    * Cleanup resources.
    */
   private cleanup(): void {
+    this.sessionGeneration += 1;
     if (this.client) {
       this.client.removeAllListeners();
       this.client.disconnect();
@@ -297,6 +318,32 @@ export class ASRService extends EventEmitter {
 
     this.updateStatus('idle');
     logger.info('ASR session cleaned up');
+  }
+
+  private resolveConfig(envConfig: ResolvedASRConfig, config?: Partial<ASRConfig>): ResolvedASRConfig {
+    if (envConfig.provider === 'siliconflow') {
+      return {
+        provider: 'siliconflow',
+        baseUrl: config?.baseUrl ?? envConfig.baseUrl,
+        model: config?.model ?? envConfig.model,
+        language: config?.language ?? envConfig.language,
+        apiKey: envConfig.apiKey,
+      };
+    }
+
+    return {
+      provider: 'volcengine',
+      appId: config?.appId ?? envConfig.appId,
+      accessToken: config?.accessToken ?? envConfig.accessToken,
+      resourceId: config?.resourceId ?? envConfig.resourceId,
+    };
+  }
+
+  private createClient(config: ResolvedASRConfig): ASRClient {
+    if (config.provider === 'siliconflow') {
+      return new SiliconflowClient(config);
+    }
+    return new VolcengineClient(config);
   }
 }
 

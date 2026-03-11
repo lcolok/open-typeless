@@ -5,6 +5,7 @@
 
 export type {
   ASRConfig,
+  ASRProvider,
   ASRResult,
   ASRStatus,
   AudioChunk,
