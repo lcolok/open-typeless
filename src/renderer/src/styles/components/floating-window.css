@@ -168,6 +168,7 @@ body {
   width: 78px;
   flex-shrink: 0;
   opacity: 0.96;
+  transition: opacity 180ms ease;
 }
 
 .status-indicator__meter--ambient {

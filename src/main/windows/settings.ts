@@ -77,6 +77,10 @@ export class SettingsWindowManager {
     this.window = null;
   }
 
+  getWindow(): BrowserWindow | null {
+    return this.window;
+  }
+
   private updateTitle(): void {
     if (!this.window) {
       return;

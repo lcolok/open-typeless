@@ -86,35 +86,7 @@ export function StatusIndicator({ status, captureReady }: StatusIndicatorProps):
 
       context.clearRect(0, 0, width, height);
 
-      const spectrum =
-        status === 'listening' && captureReady
-          ? spectrumRef.current
-          : Array(11).fill(0);
-      const barWidth = 5 * pixelRatio;
-      const gap = 2 * pixelRatio;
-      const totalWidth = spectrum.length * barWidth + (spectrum.length - 1) * gap;
-      const startX = (width - totalWidth) / 2;
       const centerY = height / 2;
-      const minHeight = 4 * pixelRatio;
-      const maxHeight = 24 * pixelRatio;
-
-      spectrum.forEach((value, index) => {
-        const normalized = Math.max(0.06, Math.min(1, value));
-        const barHeight =
-          status === 'listening' && captureReady
-            ? minHeight + normalized * (maxHeight - minHeight)
-            : minHeight;
-        const x = startX + index * (barWidth + gap);
-        const y = centerY - barHeight / 2;
-        const radius = barWidth / 2;
-
-        context.globalAlpha =
-          status === 'listening' && captureReady ? 0.55 + normalized * 0.45 : 0.18;
-        context.fillStyle = '#ffffff';
-        context.beginPath();
-        context.roundRect(x, y, barWidth, barHeight, radius);
-        context.fill();
-      });
 
       if (effectiveStatus === 'connecting') {
         const pillWidth = 50 * pixelRatio;
@@ -144,6 +116,35 @@ export function StatusIndicator({ status, captureReady }: StatusIndicatorProps):
         context.beginPath();
         context.roundRect(x, y, pillWidth, pillHeight, radius);
         context.fill();
+      } else {
+        const spectrum =
+          status === 'listening' && captureReady
+            ? spectrumRef.current
+            : Array(11).fill(0);
+        const barWidth = 5 * pixelRatio;
+        const gap = 2 * pixelRatio;
+        const totalWidth = spectrum.length * barWidth + (spectrum.length - 1) * gap;
+        const startX = (width - totalWidth) / 2;
+        const minHeight = 4 * pixelRatio;
+        const maxHeight = 24 * pixelRatio;
+
+        spectrum.forEach((value, index) => {
+          const normalized = Math.max(0.06, Math.min(1, value));
+          const barHeight =
+            status === 'listening' && captureReady
+              ? minHeight + normalized * (maxHeight - minHeight)
+              : minHeight;
+          const x = startX + index * (barWidth + gap);
+          const y = centerY - barHeight / 2;
+          const radius = barWidth / 2;
+
+          context.globalAlpha =
+            status === 'listening' && captureReady ? 0.55 + normalized * 0.45 : 0.18;
+          context.fillStyle = '#ffffff';
+          context.beginPath();
+          context.roundRect(x, y, barWidth, barHeight, radius);
+          context.fill();
+        });
       }
 
       context.globalAlpha = 1;

@@ -15,7 +15,7 @@ import { textInputService } from '../text-input';
 import { asrService } from '../asr';
 import { permissionsService } from '../permissions';
 import { settingsService } from '../settings';
-import { floatingWindow } from '../../windows';
+import { floatingWindow, settingsWindow } from '../../windows';
 import { IPC_CHANNELS } from '../../../shared/constants/channels';
 import type { InteractionMode } from '../../../shared/types/settings';
 import { t } from '../../../shared/i18n';
@@ -362,9 +362,17 @@ export class PushToTalkService {
    * Get the main application window.
    */
   private getMainWindow(): BrowserWindow | null {
-    return BrowserWindow.getAllWindows().find(
-      (win) => !win.isDestroyed()
-    ) ?? null;
+    const floating = floatingWindow.getWindow();
+    const settings = settingsWindow.getWindow();
+
+    return (
+      BrowserWindow.getAllWindows().find(
+        (win) =>
+          !win.isDestroyed() &&
+          win !== floating &&
+          win !== settings
+      ) ?? null
+    );
   }
 
   private ensurePerfContext(): void {
