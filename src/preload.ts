@@ -9,6 +9,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from './shared/constants/channels';
 import type { ASRConfig, ASRResult, ASRStatus } from './shared/types/asr';
+import type { AppSettings, AppSettingsUpdate } from './shared/types/settings';
 
 /**
  * ASR API exposed to the renderer process.
@@ -152,8 +153,29 @@ const floatingWindowApi = {
   },
 };
 
+const settingsApi = {
+  get: (): Promise<AppSettings> => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS.GET),
+
+  update: (update: AppSettingsUpdate): Promise<AppSettings> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SETTINGS.UPDATE, update),
+
+  openWindow: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SETTINGS.OPEN_WINDOW),
+
+  onChanged: (callback: (settings: AppSettings) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, settings: AppSettings): void => {
+      callback(settings);
+    };
+    ipcRenderer.on(IPC_CHANNELS.SETTINGS.CHANGED, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.SETTINGS.CHANGED, handler);
+    };
+  },
+};
+
 // Expose the API to the renderer process
 contextBridge.exposeInMainWorld('api', {
   asr: asrApi,
   floatingWindow: floatingWindowApi,
+  settings: settingsApi,
 });

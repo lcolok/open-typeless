@@ -10,6 +10,8 @@ import { AUDIO_CONFIG, AUDIO_ERRORS } from '../constants';
 import { float32ToArrayBuffer } from './pcm-converter';
 import type {
   AudioChunkCallback,
+  AudioPerfCallback,
+  AudioReadyCallback,
   AudioSpectrumCallback,
   AudioRecorderState,
   AudioResources,
@@ -42,6 +44,12 @@ import type {
  * ```
  */
 export class AudioRecorder {
+  private static readonly READY_CONSECUTIVE_CHUNKS = 3;
+
+  private static readonly READY_RMS_THRESHOLD = 0.00008;
+
+  private static readonly READY_PEAK_THRESHOLD = 0.00025;
+
   private state: AudioRecorderState = {
     isRecording: false,
     error: null,
@@ -51,7 +59,50 @@ export class AudioRecorder {
   private onAudioChunk: AudioChunkCallback;
   private onSpectrum: AudioSpectrumCallback | null;
   private onStateChange: StateChangeCallback | null;
+  private onPerf: AudioPerfCallback | null;
+  private onReady: AudioReadyCallback | null;
   private spectrumFrameId: number | null = null;
+  private cleanupTimeoutId: number | null = null;
+  private setupPromise: Promise<void> | null = null;
+  private firstChunkSent = false;
+  private firstSpectrumSent = false;
+  private readyFired = false;
+  private consecutiveLiveChunks = 0;
+  private warmIdleTimeoutMs = 10_000;
+  private shouldPrewarm = true;
+
+  private getInputLivenessMetrics(inputData: Float32Array): {
+    isLive: boolean;
+    peak: number;
+    rms: number;
+  } {
+    let sumSquares = 0;
+    let peak = 0;
+
+    for (let i = 0; i < inputData.length; i++) {
+      const sample = inputData[i];
+      const abs = Math.abs(sample);
+      sumSquares += sample * sample;
+
+      if (abs > peak) {
+        peak = abs;
+      }
+    }
+
+    const rms = Math.sqrt(sumSquares / inputData.length);
+    const isLive =
+      rms >= AudioRecorder.READY_RMS_THRESHOLD ||
+      peak >= AudioRecorder.READY_PEAK_THRESHOLD;
+
+    return { isLive, peak, rms };
+  }
+
+  private resetReadyDetection(): void {
+    this.firstChunkSent = false;
+    this.firstSpectrumSent = false;
+    this.readyFired = false;
+    this.consecutiveLiveChunks = 0;
+  }
 
   private async getPreferredDeviceId(): Promise<string | undefined> {
     if (!navigator.mediaDevices?.enumerateDevices) {
@@ -103,11 +154,15 @@ export class AudioRecorder {
   constructor(
     onAudioChunk: AudioChunkCallback,
     onStateChange?: StateChangeCallback,
-    onSpectrum?: AudioSpectrumCallback
+    onSpectrum?: AudioSpectrumCallback,
+    onPerf?: AudioPerfCallback,
+    onReady?: AudioReadyCallback
   ) {
     this.onAudioChunk = onAudioChunk;
     this.onStateChange = onStateChange ?? null;
     this.onSpectrum = onSpectrum ?? null;
+    this.onPerf = onPerf ?? null;
+    this.onReady = onReady ?? null;
   }
 
   /**
@@ -166,10 +221,41 @@ export class AudioRecorder {
     this.resources = null;
   }
 
+  private stopSpectrumLoop(): void {
+    if (this.spectrumFrameId !== null) {
+      cancelAnimationFrame(this.spectrumFrameId);
+      this.spectrumFrameId = null;
+    }
+  }
+
+  private cancelCleanup(): void {
+    if (this.cleanupTimeoutId !== null) {
+      clearTimeout(this.cleanupTimeoutId);
+      this.cleanupTimeoutId = null;
+    }
+  }
+
+  private scheduleCleanup(): void {
+    if (!this.shouldPrewarm) {
+      this.cleanupResources();
+      return;
+    }
+
+    this.cancelCleanup();
+    this.cleanupTimeoutId = window.setTimeout(() => {
+      console.log('[AudioRecorder] Releasing warmed audio resources after idle timeout');
+      this.onPerf?.('warm_cleanup_timeout');
+      this.cleanupResources();
+      this.cleanupTimeoutId = null;
+    }, this.warmIdleTimeoutMs);
+  }
+
   private startSpectrumLoop(): void {
     if (!this.resources?.analyserNode || !this.onSpectrum) {
       return;
     }
+
+    this.stopSpectrumLoop();
 
     const analyser = this.resources.analyserNode;
     const frequencyData = new Uint8Array(analyser.frequencyBinCount);
@@ -197,11 +283,182 @@ export class AudioRecorder {
         return Math.min(1, Math.pow(average, 0.85) * 1.35);
       });
 
+      if (!this.firstSpectrumSent) {
+        this.firstSpectrumSent = true;
+        this.onPerf?.('first_spectrum_frame');
+      }
+
       this.onSpectrum?.(spectrum);
       this.spectrumFrameId = requestAnimationFrame(tick);
     };
 
     tick();
+  }
+
+  private async ensureResources(): Promise<void> {
+    this.cancelCleanup();
+
+    if (this.resources) {
+      return;
+    }
+
+    if (this.setupPromise) {
+      await this.setupPromise;
+      return;
+    }
+
+    this.setupPromise = this.createResources();
+
+    try {
+      await this.setupPromise;
+    } finally {
+      this.setupPromise = null;
+    }
+  }
+
+  private async createResources(): Promise<void> {
+    const totalStart = performance.now();
+
+    // Check for AudioContext support
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioContextClass) {
+      this.setState({ error: AUDIO_ERRORS.AUDIO_CONTEXT_NOT_SUPPORTED });
+      return;
+    }
+
+    const deviceStart = performance.now();
+    const preferredDeviceId = await this.getPreferredDeviceId();
+    this.onPerf?.(
+      'device_selection_complete',
+      {
+        preferredDeviceId: preferredDeviceId ?? '(system default)',
+      },
+      Math.round(performance.now() - deviceStart)
+    );
+    console.log('[AudioRecorder] Device selection ready', {
+      durationMs: Math.round(performance.now() - deviceStart),
+      preferredDeviceId: preferredDeviceId ?? '(system default)',
+    });
+
+    const streamStart = performance.now();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        ...(preferredDeviceId
+          ? {
+              deviceId: preferredDeviceId === 'default'
+                ? undefined
+                : { exact: preferredDeviceId },
+            }
+          : {}),
+        sampleRate: AUDIO_CONFIG.sampleRate,
+        channelCount: AUDIO_CONFIG.channelCount,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    this.onPerf?.(
+      'get_user_media_complete',
+      undefined,
+      Math.round(performance.now() - streamStart)
+    );
+    console.log('[AudioRecorder] getUserMedia resolved', {
+      durationMs: Math.round(performance.now() - streamStart),
+    });
+
+    const activeTrack = stream.getAudioTracks()[0];
+    console.log('[AudioRecorder] Active input track:', {
+      label: activeTrack?.label || '(unknown)',
+      settings: activeTrack?.getSettings?.(),
+    });
+
+    const graphStart = performance.now();
+    const audioContext = new AudioContextClass({
+      sampleRate: AUDIO_CONFIG.sampleRate,
+    });
+
+    const sourceNode = audioContext.createMediaStreamSource(stream);
+    const analyserNode = audioContext.createAnalyser();
+    analyserNode.fftSize = 512;
+    analyserNode.smoothingTimeConstant = 0.82;
+    analyserNode.minDecibels = -90;
+    analyserNode.maxDecibels = -18;
+
+    const processorNode = audioContext.createScriptProcessor(
+      AUDIO_CONFIG.bufferSize,
+      AUDIO_CONFIG.channelCount,
+      AUDIO_CONFIG.channelCount
+    );
+
+    const onChunk = this.onAudioChunk;
+    processorNode.onaudioprocess = (event: AudioProcessingEvent): void => {
+      if (!this.state.isRecording) {
+        return;
+      }
+
+      const inputData = event.inputBuffer.getChannelData(0);
+      const { isLive, peak, rms } = this.getInputLivenessMetrics(inputData);
+
+      if (!this.firstChunkSent) {
+        this.firstChunkSent = true;
+        this.onPerf?.('first_audio_chunk', {
+          peak,
+          rms,
+        });
+      }
+
+      if (isLive) {
+        this.consecutiveLiveChunks += 1;
+      } else {
+        this.consecutiveLiveChunks = 0;
+      }
+
+      if (
+        !this.readyFired &&
+        this.consecutiveLiveChunks >= AudioRecorder.READY_CONSECUTIVE_CHUNKS
+      ) {
+        this.readyFired = true;
+        this.onPerf?.('input_live_confirmed', {
+          consecutiveLiveChunks: this.consecutiveLiveChunks,
+          peak,
+          rms,
+        });
+        this.onReady?.();
+      }
+
+      const pcmBuffer = float32ToArrayBuffer(inputData);
+      onChunk(pcmBuffer);
+    };
+
+    sourceNode.connect(analyserNode);
+    sourceNode.connect(processorNode);
+    processorNode.connect(audioContext.destination);
+
+    this.resources = {
+      stream,
+      audioContext,
+      sourceNode,
+      processorNode,
+      analyserNode,
+    };
+
+    console.log('[AudioRecorder] Audio graph warmed', {
+      graphMs: Math.round(performance.now() - graphStart),
+      totalMs: Math.round(performance.now() - totalStart),
+    });
+    this.onPerf?.(
+      'audio_graph_ready',
+      undefined,
+      Math.round(performance.now() - graphStart)
+    );
+    this.onPerf?.(
+      'recorder_resources_ready',
+      undefined,
+      Math.round(performance.now() - totalStart)
+    );
   }
 
   /**
@@ -220,97 +477,23 @@ export class AudioRecorder {
     this.setState({ error: null });
 
     try {
-      // Check for AudioContext support
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext?: typeof AudioContext })
-          .webkitAudioContext;
-      if (!AudioContextClass) {
-        this.setState({ error: AUDIO_ERRORS.AUDIO_CONTEXT_NOT_SUPPORTED });
-        return;
-      }
-
-      const preferredDeviceId = await this.getPreferredDeviceId();
-
-      // Request microphone access with audio constraints
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          ...(preferredDeviceId
-            ? {
-                deviceId: preferredDeviceId === 'default'
-                  ? undefined
-                  : { exact: preferredDeviceId },
-              }
-            : {}),
-          sampleRate: AUDIO_CONFIG.sampleRate,
-          channelCount: AUDIO_CONFIG.channelCount,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
-      const activeTrack = stream.getAudioTracks()[0];
-      console.log('[AudioRecorder] Active input track:', {
-        label: activeTrack?.label || '(unknown)',
-        settings: activeTrack?.getSettings?.(),
-      });
-
-      // Create AudioContext with desired sample rate
-      const audioContext = new AudioContextClass({
-        sampleRate: AUDIO_CONFIG.sampleRate,
-      });
-
-      // Create source node from media stream
-      const sourceNode = audioContext.createMediaStreamSource(stream);
-      const analyserNode = audioContext.createAnalyser();
-      analyserNode.fftSize = 512;
-      analyserNode.smoothingTimeConstant = 0.82;
-      analyserNode.minDecibels = -90;
-      analyserNode.maxDecibels = -18;
-
-      // Create ScriptProcessorNode for audio processing
-      // Note: ScriptProcessorNode is deprecated but still widely supported
-      // AudioWorklet would be the modern replacement but requires more setup
-      const processorNode = audioContext.createScriptProcessor(
-        AUDIO_CONFIG.bufferSize,
-        AUDIO_CONFIG.channelCount, // input channels
-        AUDIO_CONFIG.channelCount // output channels
-      );
-
-      // Store callback reference for closure
-      const onChunk = this.onAudioChunk;
-
-      // Set up audio processing callback
-      processorNode.onaudioprocess = (event: AudioProcessingEvent): void => {
-        // Get audio data from input buffer (channel 0 = mono)
-        const inputData = event.inputBuffer.getChannelData(0);
-
-        // Convert Float32 audio to PCM 16-bit ArrayBuffer
-        const pcmBuffer = float32ToArrayBuffer(inputData);
-
-        // Send chunk to callback
-        onChunk(pcmBuffer);
-      };
-
-      // Connect the audio graph: source -> processor -> destination
-      sourceNode.connect(analyserNode);
-      sourceNode.connect(processorNode);
-      // Connect to destination to ensure onaudioprocess fires
-      // The audio won't actually play because we're not outputting anything meaningful
-      processorNode.connect(audioContext.destination);
-
-      // Store resources for cleanup
-      this.resources = {
-        stream,
-        audioContext,
-        sourceNode,
-        processorNode,
-        analyserNode,
-      };
-
+      const startTime = performance.now();
+      this.resetReadyDetection();
+      this.onPerf?.('recorder_start_requested');
+      await this.ensureResources();
       this.setState({ isRecording: true });
       this.startSpectrumLoop();
+      this.onPerf?.(
+        'recorder_start_completed',
+        {
+          warmed: Boolean(this.resources),
+        },
+        Math.round(performance.now() - startTime)
+      );
+      console.log('[AudioRecorder] Recording activated', {
+        durationMs: Math.round(performance.now() - startTime),
+        warmed: Boolean(this.resources),
+      });
     } catch (err) {
       // Handle specific error types
       if (err instanceof DOMException) {
@@ -336,7 +519,23 @@ export class AudioRecorder {
 
       // Clean up any partially created resources
       this.cleanupResources();
+      this.cancelCleanup();
       this.onSpectrum?.(Array(11).fill(0));
+    }
+  }
+
+  public async prepare(): Promise<void> {
+    if (!this.shouldPrewarm) {
+      return;
+    }
+
+    try {
+      this.onPerf?.('recorder_prepare_requested');
+      await this.ensureResources();
+      this.onPerf?.('recorder_prepare_completed');
+      this.scheduleCleanup();
+    } catch (error) {
+      console.warn('[AudioRecorder] Warmup failed', error);
     }
   }
 
@@ -348,17 +547,41 @@ export class AudioRecorder {
       return;
     }
 
-    this.cleanupResources();
+    this.onPerf?.('recorder_stop_requested');
+    this.stopSpectrumLoop();
     this.setState({ isRecording: false });
+    this.resetReadyDetection();
     this.onSpectrum?.(Array(11).fill(0));
+    this.scheduleCleanup();
+    this.onPerf?.('recorder_stop_completed');
   }
 
   /**
    * Cleans up all resources. Call this when the recorder is no longer needed.
    */
   public destroy(): void {
+    this.cancelCleanup();
+    this.stopSpectrumLoop();
     this.stop();
+    this.cleanupResources();
     this.onStateChange = null;
     this.onSpectrum = null;
+  }
+
+  public configureWarmup(options: {
+    keepAliveMs: number;
+    enabled: boolean;
+  }): void {
+    this.warmIdleTimeoutMs = options.keepAliveMs;
+    this.shouldPrewarm = options.enabled;
+
+    if (!options.enabled) {
+      this.cancelCleanup();
+      if (!this.state.isRecording) {
+        this.cleanupResources();
+      }
+    } else if (!this.state.isRecording && this.resources) {
+      this.scheduleCleanup();
+    }
   }
 }

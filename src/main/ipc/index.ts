@@ -5,6 +5,7 @@
 
 import { setupASRHandlers } from './asr.handler';
 import { setupFloatingWindowHandlers } from './floating-window.handler';
+import { setupSettingsHandlers } from './settings.handler';
 
 /**
  * Setup all IPC handlers.
@@ -13,4 +14,5 @@ import { setupFloatingWindowHandlers } from './floating-window.handler';
 export function setupAllIpcHandlers(): void {
   setupASRHandlers();
   setupFloatingWindowHandlers();
+  setupSettingsHandlers();
 }

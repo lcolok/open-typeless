@@ -10,6 +10,9 @@ export type {
   ASRResult,
   ASRStatus,
   AudioChunk,
+  AppSettings,
+  AppSettingsUpdate,
+  InteractionMode,
 } from './types';
 
 // Constants

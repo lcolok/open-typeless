@@ -45,6 +45,12 @@ export type { TextInsertResult } from './text-input';
 export { PermissionsService, permissionsService } from './permissions';
 export type { PermissionStatus, PermissionType, MediaAccessStatus } from './permissions';
 
+// Settings Service
+export { SettingsService, settingsService } from './settings';
+
+// Menu Bar Service
+export { MenuBarService, menuBarService } from './menu-bar';
+
 // Push-to-Talk Service
 export { PushToTalkService, pushToTalkService } from './push-to-talk';
 export type { PushToTalkConfig } from './push-to-talk';

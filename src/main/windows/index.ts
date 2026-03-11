@@ -4,3 +4,4 @@
  */
 
 export { FloatingWindowManager, floatingWindow } from './floating';
+export { SettingsWindowManager, settingsWindow } from './settings';

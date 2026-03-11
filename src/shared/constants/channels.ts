@@ -22,6 +22,12 @@ export const IPC_CHANNELS = {
     /** ASR error (Main -> Renderer) */
     ERROR: 'asr:error',
   },
+  SETTINGS: {
+    GET: 'settings:get',
+    UPDATE: 'settings:update',
+    CHANGED: 'settings:changed',
+    OPEN_WINDOW: 'settings:open-window',
+  },
   FLOATING_WINDOW: {
     /** Show floating window (Renderer -> Main) */
     SHOW: 'floating-window:show',

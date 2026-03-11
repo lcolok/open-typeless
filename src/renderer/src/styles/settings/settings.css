@@ -1,0 +1,147 @@
+:root {
+  color: #1f2328;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.7), transparent 22%),
+    linear-gradient(180deg, #e8e5df 0%, #dfdcd5 100%);
+}
+
+body {
+  margin: 0;
+  font-family:
+    'SF Pro Text',
+    'Helvetica Neue',
+    sans-serif;
+  color: #1f2328;
+  overflow: hidden;
+}
+
+.settings-page {
+  min-height: 100vh;
+  padding: 24px 24px 18px;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.settings-page::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.settings-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.settings-card__header h1 {
+  margin: 0;
+  font-size: 27px;
+  line-height: 1.08;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.settings-eyebrow {
+  margin: 0;
+  color: rgba(31, 35, 40, 0.45);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-status {
+  margin: 0;
+  color: rgba(31, 35, 40, 0.58);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.settings-group {
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(31, 35, 40, 0.08);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 8px 24px rgba(71, 63, 50, 0.08);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.settings-group__title {
+  margin: 0;
+  padding: 12px 18px 8px;
+  color: rgba(31, 35, 40, 0.52);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 12px 18px;
+  border-top: 1px solid rgba(31, 35, 40, 0.08);
+}
+
+.settings-row--stacked {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.settings-row__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+.settings-row select,
+.settings-row input {
+  width: 100%;
+  border: 1px solid rgba(31, 35, 40, 0.1);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 9px 12px;
+  color: #1f2328;
+  font-size: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  outline: none;
+}
+
+.settings-row select:focus,
+.settings-row input:focus {
+  border-color: rgba(10, 132, 255, 0.55);
+  box-shadow:
+    0 0 0 4px rgba(10, 132, 255, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.settings-note {
+  display: grid;
+  gap: 5px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid rgba(31, 35, 40, 0.08);
+  color: rgba(31, 35, 40, 0.72);
+  font-size: 13px;
+  line-height: 1.48;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.settings-note strong {
+  color: #1f2328;
+}

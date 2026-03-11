@@ -14,8 +14,10 @@ import { keyboardService } from '../keyboard';
 import { textInputService } from '../text-input';
 import { asrService } from '../asr';
 import { permissionsService } from '../permissions';
+import { settingsService } from '../settings';
 import { floatingWindow } from '../../windows';
 import { IPC_CHANNELS } from '../../../shared/constants/channels';
+import type { InteractionMode } from '../../../shared/types/settings';
 
 const logger = log.scope('push-to-talk-service');
 
@@ -24,7 +26,7 @@ const logger = log.scope('push-to-talk-service');
  */
 export interface PushToTalkConfig {
   /** Interaction mode for the trigger key */
-  interactionMode: 'ptt' | 'toggle';
+  interactionMode: InteractionMode;
   /** Whether to auto-insert text after recognition */
   autoInsertText: boolean;
   /** Delay before hiding floating window after done (ms) */
@@ -35,7 +37,7 @@ export interface PushToTalkConfig {
  * Default configuration.
  */
 const DEFAULT_CONFIG: PushToTalkConfig = {
-  interactionMode: (process.env.ASR_INTERACTION_MODE === 'toggle' ? 'toggle' : 'ptt'),
+  interactionMode: 'ptt',
   autoInsertText: true,
   hideDelayMs: 500,
 };
@@ -63,9 +65,16 @@ export class PushToTalkService {
   private isActive = false;
   private isInitialized = false;
   private transitionQueue: Promise<void> = Promise.resolve();
+  private readonly settingsChangedHandler = (): void => {
+    this.syncInteractionMode();
+    logger.info('Push-to-talk interaction mode updated', {
+      mode: this.config.interactionMode,
+    });
+  };
 
   constructor(config: Partial<PushToTalkConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.syncInteractionMode();
   }
 
   /**
@@ -79,6 +88,7 @@ export class PushToTalkService {
     }
 
     logger.info('Initializing PushToTalkService');
+    this.syncInteractionMode();
     logger.info('Push-to-talk interaction mode', {
       mode: this.config.interactionMode,
     });
@@ -91,6 +101,8 @@ export class PushToTalkService {
       () => this.handleKeyDown(),
       () => this.handleKeyUp()
     );
+
+    settingsService.on('changed', this.settingsChangedHandler);
 
     this.isInitialized = true;
     logger.info('PushToTalkService initialized');
@@ -116,6 +128,7 @@ export class PushToTalkService {
 
     // Unregister keyboard hooks
     keyboardService.unregister();
+    settingsService.off('changed', this.settingsChangedHandler);
 
     this.isInitialized = false;
     logger.info('PushToTalkService disposed');
@@ -172,6 +185,10 @@ export class PushToTalkService {
       });
 
     return this.transitionQueue;
+  }
+
+  private syncInteractionMode(): void {
+    this.config.interactionMode = settingsService.getSettings().interactionMode;
   }
 
   private async startSession(): Promise<void> {

@@ -10,3 +10,9 @@ export type {
   ASRStatus,
   AudioChunk,
 } from './asr';
+
+export type {
+  AppSettings,
+  AppSettingsUpdate,
+  InteractionMode,
+} from './settings';

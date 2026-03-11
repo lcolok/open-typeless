@@ -3,8 +3,8 @@ import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { setupAllIpcHandlers } from './main/ipc';
-import { floatingWindow } from './main/windows';
-import { pushToTalkService } from './main/services';
+import { floatingWindow, settingsWindow } from './main/windows';
+import { menuBarService, pushToTalkService } from './main/services';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -38,6 +38,8 @@ const createWindow = async () => {
 
   // Create the floating window (hidden initially)
   floatingWindow.create();
+  settingsWindow.create();
+  menuBarService.create();
 
   // Preload the floating renderer before enabling the hotkey path.
   await floatingWindow.waitUntilReady();
@@ -66,6 +68,8 @@ app.on('window-all-closed', () => {
 function cleanup(): void {
   pushToTalkService.dispose();
   floatingWindow.destroy();
+  settingsWindow.destroy();
+  menuBarService.destroy();
 }
 
 // Clean up before quitting

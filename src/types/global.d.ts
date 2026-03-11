@@ -4,6 +4,7 @@
  */
 
 import type { ASRConfig, ASRResult, ASRStatus } from '../shared/types/asr';
+import type { AppSettings, AppSettingsUpdate } from '../shared/types/settings';
 
 /**
  * ASR API interface exposed via contextBridge.
@@ -101,6 +102,12 @@ interface FloatingWindowApi {
 interface AppApi {
   asr: ASRApi;
   floatingWindow: FloatingWindowApi;
+  settings: {
+    get: () => Promise<AppSettings>;
+    update: (update: AppSettingsUpdate) => Promise<AppSettings>;
+    openWindow: () => Promise<{ success: boolean }>;
+    onChanged: (callback: (settings: AppSettings) => void) => () => void;
+  };
 }
 
 declare global {

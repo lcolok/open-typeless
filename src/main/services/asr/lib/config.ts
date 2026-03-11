@@ -6,6 +6,7 @@
 import { SILICONFLOW_CONSTANTS, VOLCENGINE_CONSTANTS } from '../types';
 import type { ResolvedASRConfig } from '../types';
 import type { ASRProvider } from '../../../../shared/types/asr';
+import { settingsService } from '../../settings';
 
 /**
  * ASR environment configuration.
@@ -36,16 +37,15 @@ export class ConfigurationError extends Error {
  * @throws ConfigurationError if required variables are missing
  */
 export function loadASRConfig(): ASREnvConfig {
-  const provider = (process.env.ASR_PROVIDER ?? 'volcengine') as ASRProvider;
+  const appSettings = settingsService.getSettings();
+  const provider = appSettings.asrProvider ?? ((process.env.ASR_PROVIDER ?? 'volcengine') as ASRProvider);
 
   if (provider === 'siliconflow') {
     return {
       provider: 'siliconflow',
-      baseUrl:
-        process.env.SILICONFLOW_BASE_URL ?? SILICONFLOW_CONSTANTS.DEFAULT_BASE_URL,
-      model: process.env.SILICONFLOW_MODEL ?? SILICONFLOW_CONSTANTS.DEFAULT_MODEL,
-      language:
-        process.env.SILICONFLOW_LANGUAGE ?? SILICONFLOW_CONSTANTS.DEFAULT_LANGUAGE,
+      baseUrl: appSettings.siliconflowBaseUrl ?? process.env.SILICONFLOW_BASE_URL ?? SILICONFLOW_CONSTANTS.DEFAULT_BASE_URL,
+      model: appSettings.siliconflowModel ?? process.env.SILICONFLOW_MODEL ?? SILICONFLOW_CONSTANTS.DEFAULT_MODEL,
+      language: appSettings.siliconflowLanguage ?? process.env.SILICONFLOW_LANGUAGE ?? SILICONFLOW_CONSTANTS.DEFAULT_LANGUAGE,
       apiKey: process.env.SILICONFLOW_API_KEY,
     };
   }
@@ -85,7 +85,7 @@ export function loadASRConfig(): ASREnvConfig {
  * @returns true if all required environment variables are set
  */
 export function isASRConfigured(): boolean {
-  const provider = process.env.ASR_PROVIDER ?? 'volcengine';
+  const provider = settingsService.getSettings().asrProvider ?? process.env.ASR_PROVIDER ?? 'volcengine';
   if (provider === 'siliconflow') {
     return Boolean(process.env.SILICONFLOW_BASE_URL || SILICONFLOW_CONSTANTS.DEFAULT_BASE_URL);
   }
