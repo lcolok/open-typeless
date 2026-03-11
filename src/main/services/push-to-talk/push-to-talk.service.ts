@@ -18,6 +18,8 @@ import { settingsService } from '../settings';
 import { floatingWindow } from '../../windows';
 import { IPC_CHANNELS } from '../../../shared/constants/channels';
 import type { InteractionMode } from '../../../shared/types/settings';
+import { t } from '../../../shared/i18n';
+import type { ASRPerfContext } from '../../../shared/types/asr';
 
 const logger = log.scope('push-to-talk-service');
 
@@ -65,6 +67,8 @@ export class PushToTalkService {
   private isActive = false;
   private isInitialized = false;
   private transitionQueue: Promise<void> = Promise.resolve();
+  private sessionCounter = 0;
+  private currentPerfContext: ASRPerfContext | null = null;
   private readonly settingsChangedHandler = (): void => {
     this.syncInteractionMode();
     logger.info('Push-to-talk interaction mode updated', {
@@ -146,6 +150,9 @@ export class PushToTalkService {
    * Starts ASR session and shows floating window.
    */
   private async handleKeyDown(): Promise<void> {
+    this.ensurePerfContext();
+    this.logPerf('trigger_key_down');
+
     await this.enqueueTransition(async () => {
       if (this.config.interactionMode === 'toggle') {
         if (this.isActive) {
@@ -172,6 +179,7 @@ export class PushToTalkService {
       return;
     }
 
+    this.logPerf('trigger_key_up');
     await this.enqueueTransition(() => this.stopSession());
   }
 
@@ -197,21 +205,30 @@ export class PushToTalkService {
       return;
     }
 
+    this.ensurePerfContext();
     logger.info('Push-to-talk: START');
+    this.logPerf('session_start_requested');
     this.isActive = true;
 
     try {
+      this.broadcastPerfContext();
+
       // Show floating window with listening status
+      this.logPerf('floating_status_connecting_send');
       floatingWindow.sendStatus('connecting');
 
       // Start ASR session
+      this.logPerf('asr_start_requested');
       await asrService.start();
+      this.logPerf('asr_start_completed');
 
       // Update status to listening
+      this.logPerf('floating_status_listening_send');
       floatingWindow.sendStatus('listening');
 
       // Notify renderer to start recording
       this.notifyRendererStartRecording();
+      this.logPerf('renderer_start_notified');
 
       logger.info('Push-to-talk session started');
     } catch (error) {
@@ -222,7 +239,9 @@ export class PushToTalkService {
       this.isActive = false;
 
       // Show error in floating window
-      floatingWindow.sendError(`Failed to start: ${message}`);
+      floatingWindow.sendError(
+        t(settingsService.getSettings().locale, 'error.start_failed', { message })
+      );
     }
   }
 
@@ -233,17 +252,25 @@ export class PushToTalkService {
     }
 
     logger.info('Push-to-talk: STOP');
+    this.logPerf('session_stop_requested');
     this.isActive = false;
 
     try {
       // Update floating window status
+      this.logPerf('floating_status_processing_send');
       floatingWindow.sendStatus('processing');
 
       // Notify renderer to stop recording
       this.notifyRendererStopRecording();
+      this.logPerf('renderer_stop_notified');
 
       // Stop ASR and get final result
+      this.logPerf('asr_stop_requested');
       const result = await asrService.stop();
+      this.logPerf('asr_stop_completed', {
+        hasResult: Boolean(result?.text),
+        textLength: result?.text.length ?? 0,
+      });
 
       if (result && result.text) {
         logger.info('ASR result received', {
@@ -254,10 +281,12 @@ export class PushToTalkService {
         // Send result to floating window
         floatingWindow.sendResult(result);
         floatingWindow.sendStatus('done');
+        this.logPerf('result_displayed');
 
         // IMPORTANT: Hide floating window FIRST to return focus to the previous app
         // Then wait a bit for the focus to switch before inserting text
         floatingWindow.hide();
+        this.logPerf('floating_hidden_for_insert');
 
         // Insert text at cursor position after focus returns
         if (this.config.autoInsertText) {
@@ -265,31 +294,47 @@ export class PushToTalkService {
           await new Promise(resolve => setTimeout(resolve, 100));
 
           const insertResult = textInputService.insert(result.text);
+          this.logPerf('text_insert_attempted', {
+            success: insertResult.success,
+          });
 
           if (!insertResult.success) {
             logger.error('Failed to insert text', { error: insertResult.error });
             // Show error briefly
-            floatingWindow.sendError(`Insert failed: ${insertResult.error}`);
+            const insertErrorMessage = insertResult.error ?? 'Unknown error';
+            floatingWindow.sendError(
+              t(settingsService.getSettings().locale, 'error.insert_failed', {
+                message: insertErrorMessage,
+              })
+            );
           } else {
             logger.info('Text inserted successfully');
+            this.logPerf('text_insert_completed');
           }
         }
       } else {
         logger.info('No ASR result to insert');
         // Hide floating window
         floatingWindow.hide();
+        this.logPerf('no_result_hide_window');
       }
 
       logger.info('Push-to-talk session completed');
+      this.logPerf('session_completed');
+      this.clearPerfContext();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error('Failed to stop push-to-talk session', { error: message });
 
       // Show error in floating window briefly, then hide
-      floatingWindow.sendError(`Error: ${message}`);
+      floatingWindow.sendError(
+        t(settingsService.getSettings().locale, 'error.generic', { message })
+      );
       setTimeout(() => {
         floatingWindow.hide();
       }, this.config.hideDelayMs * 2);
+      this.logPerf('session_failed', { message });
+      this.clearPerfContext();
     }
   }
 
@@ -320,6 +365,47 @@ export class PushToTalkService {
     return BrowserWindow.getAllWindows().find(
       (win) => !win.isDestroyed()
     ) ?? null;
+  }
+
+  private ensurePerfContext(): void {
+    if (this.currentPerfContext) {
+      return;
+    }
+
+    this.currentPerfContext = {
+      sessionId: `asr-${Date.now()}-${++this.sessionCounter}`,
+      startedAtMs: Date.now(),
+    };
+  }
+
+  private clearPerfContext(): void {
+    this.currentPerfContext = null;
+  }
+
+  private broadcastPerfContext(): void {
+    if (!this.currentPerfContext) {
+      return;
+    }
+
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send(IPC_CHANNELS.ASR.PERF_CONTEXT, this.currentPerfContext);
+      }
+    }
+  }
+
+  private logPerf(stage: string, details?: Record<string, unknown>): void {
+    this.ensurePerfContext();
+    if (!this.currentPerfContext) {
+      return;
+    }
+
+    logger.info('Performance telemetry', {
+      sessionId: this.currentPerfContext.sessionId,
+      stage,
+      sinceStartMs: Date.now() - this.currentPerfContext.startedAtMs,
+      details,
+    });
   }
 }
 

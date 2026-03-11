@@ -4,25 +4,29 @@
  */
 
 import type { ReactElement } from 'react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  getLocalizedStatusBadge,
+  getLocalizedStatusDetail,
+  getLocalizedStatusLabel,
+} from '../../../../../shared/i18n';
 import type { ASRStatus } from '../../../../../shared/types/asr';
+import type { AppLocale, InteractionMode } from '../../../../../shared/types/settings';
 
 interface StatusIndicatorProps {
   /** Current ASR status */
   status: ASRStatus;
+  /** Whether audio capture is actually ready */
+  captureReady: boolean;
 }
 
-/**
- * Status configuration for display.
- * Labels and CSS class names for each ASR status.
- */
-const STATUS_CONFIG: Record<ASRStatus, { label: string; className: string }> = {
-  idle: { label: 'Hold Right Option', className: 'status-indicator--idle' },
-  connecting: { label: 'Listening...', className: 'status-indicator--connecting' },
-  listening: { label: 'Listening...', className: 'status-indicator--listening' },
-  processing: { label: 'Processing...', className: 'status-indicator--processing' },
-  done: { label: 'Done', className: 'status-indicator--done' },
-  error: { label: 'Error', className: 'status-indicator--error' },
+const STATUS_CLASS_NAMES: Record<ASRStatus, string> = {
+  idle: 'status-indicator--idle',
+  connecting: 'status-indicator--connecting',
+  listening: 'status-indicator--listening',
+  processing: 'status-indicator--processing',
+  done: 'status-indicator--done',
+  error: 'status-indicator--error',
 };
 
 /**
@@ -33,10 +37,29 @@ const STATUS_CONFIG: Record<ASRStatus, { label: string; className: string }> = {
  * <StatusIndicator status="listening" />
  * ```
  */
-export function StatusIndicator({ status }: StatusIndicatorProps): ReactElement {
-  const config = STATUS_CONFIG[status];
+export function StatusIndicator({ status, captureReady }: StatusIndicatorProps): ReactElement {
+  const [locale, setLocale] = useState<AppLocale>('zh');
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>('ptt');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const spectrumRef = useRef<number[]>(Array(11).fill(0));
+  const effectiveStatus =
+    status === 'listening' && !captureReady ? 'connecting' : status;
+  const badge = getLocalizedStatusBadge(locale, effectiveStatus);
+  const detail = getLocalizedStatusDetail(locale, effectiveStatus);
+  const showMeter =
+    (status === 'listening' && captureReady) || status === 'processing';
+
+  useEffect(() => {
+    void window.api.settings.get().then((settings) => {
+      setLocale(settings.locale);
+      setInteractionMode(settings.interactionMode);
+    });
+
+    return window.api.settings.onChanged((settings) => {
+      setLocale(settings.locale);
+      setInteractionMode(settings.interactionMode);
+    });
+  }, []);
 
   useEffect(() => {
     const draw = (): void => {
@@ -64,7 +87,9 @@ export function StatusIndicator({ status }: StatusIndicatorProps): ReactElement 
       context.clearRect(0, 0, width, height);
 
       const spectrum =
-        status === 'listening' ? spectrumRef.current : Array(11).fill(0);
+        status === 'listening' && captureReady
+          ? spectrumRef.current
+          : Array(11).fill(0);
       const barWidth = 5 * pixelRatio;
       const gap = 2 * pixelRatio;
       const totalWidth = spectrum.length * barWidth + (spectrum.length - 1) * gap;
@@ -76,19 +101,50 @@ export function StatusIndicator({ status }: StatusIndicatorProps): ReactElement 
       spectrum.forEach((value, index) => {
         const normalized = Math.max(0.06, Math.min(1, value));
         const barHeight =
-          status === 'listening'
+          status === 'listening' && captureReady
             ? minHeight + normalized * (maxHeight - minHeight)
             : minHeight;
         const x = startX + index * (barWidth + gap);
         const y = centerY - barHeight / 2;
         const radius = barWidth / 2;
 
-        context.globalAlpha = status === 'listening' ? 0.55 + normalized * 0.45 : 0.22;
+        context.globalAlpha =
+          status === 'listening' && captureReady ? 0.55 + normalized * 0.45 : 0.18;
         context.fillStyle = '#ffffff';
         context.beginPath();
         context.roundRect(x, y, barWidth, barHeight, radius);
         context.fill();
       });
+
+      if (effectiveStatus === 'connecting') {
+        const pillWidth = 50 * pixelRatio;
+        const pillHeight = 6 * pixelRatio;
+        const x = (width - pillWidth) / 2;
+        const y = centerY - pillHeight / 2;
+        const radius = pillHeight / 2;
+        const shimmerOffset = ((Date.now() / 12) % (pillWidth + 18 * pixelRatio)) - 18 * pixelRatio;
+
+        context.globalAlpha = 0.22;
+        context.fillStyle = '#ffffff';
+        context.beginPath();
+        context.roundRect(x, y, pillWidth, pillHeight, radius);
+        context.fill();
+
+        const gradient = context.createLinearGradient(
+          x + shimmerOffset,
+          y,
+          x + shimmerOffset + 18 * pixelRatio,
+          y
+        );
+        gradient.addColorStop(0, 'rgba(255,255,255,0)');
+        gradient.addColorStop(0.5, 'rgba(255,255,255,0.9)');
+        gradient.addColorStop(1, 'rgba(255,255,255,0)');
+        context.globalAlpha = 1;
+        context.fillStyle = gradient;
+        context.beginPath();
+        context.roundRect(x, y, pillWidth, pillHeight, radius);
+        context.fill();
+      }
 
       context.globalAlpha = 1;
       frameId = requestAnimationFrame(draw);
@@ -103,21 +159,37 @@ export function StatusIndicator({ status }: StatusIndicatorProps): ReactElement 
       cancelAnimationFrame(frameId);
       unsubscribeSpectrum();
     };
-  }, [status]);
+  }, [captureReady, effectiveStatus, status]);
 
   return (
-    <div className={`status-indicator ${config.className}`}>
+    <div className={`status-indicator ${STATUS_CLASS_NAMES[effectiveStatus]}`}>
       <div className="status-indicator__left">
-        <span className="status-indicator__dot" />
-        <span className="status-indicator__label">{config.label}</span>
+        <div className="status-indicator__title-row">
+          <span className="status-indicator__dot" />
+          <span className="status-indicator__label">
+            {getLocalizedStatusLabel(locale, effectiveStatus, interactionMode)}
+          </span>
+          {badge && <span className="status-indicator__badge">{badge}</span>}
+        </div>
+        <span className="status-indicator__detail">{detail}</span>
       </div>
-      <canvas
-        ref={canvasRef}
-        className="status-indicator__meter"
-        width={78}
-        height={28}
-        aria-hidden="true"
-      />
+      {showMeter ? (
+        <canvas
+          ref={canvasRef}
+          className="status-indicator__meter"
+          width={78}
+          height={28}
+          aria-hidden="true"
+        />
+      ) : (
+        <canvas
+          ref={canvasRef}
+          className="status-indicator__meter status-indicator__meter--ambient"
+          width={78}
+          height={28}
+          aria-hidden="true"
+        />
+      )}
     </div>
   );
 }

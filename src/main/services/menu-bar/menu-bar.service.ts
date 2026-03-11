@@ -2,6 +2,7 @@ import { Menu, Tray, nativeImage, app } from 'electron';
 import log from 'electron-log';
 import { settingsService } from '../settings';
 import { settingsWindow } from '../../windows';
+import { getLocalizedInteractionMode, getLocalizedProviderLabel, t } from '../../../shared/i18n';
 
 const logger = log.scope('menu-bar-service');
 
@@ -24,6 +25,7 @@ function createTrayImage() {
 
 export class MenuBarService {
   private tray: Tray | null = null;
+  private menu: Menu | null = null;
   private readonly settingsChangedHandler = (): void => {
     this.refreshMenu();
   };
@@ -37,7 +39,14 @@ export class MenuBarService {
     this.tray.setTitle('OT');
     this.tray.setToolTip('Open Typeless');
     this.tray.on('click', () => {
-      settingsWindow.show();
+      if (this.tray && this.menu) {
+        this.tray.popUpContextMenu(this.menu);
+      }
+    });
+    this.tray.on('right-click', () => {
+      if (this.tray && this.menu) {
+        this.tray.popUpContextMenu(this.menu);
+      }
     });
 
     settingsService.on('changed', this.settingsChangedHandler);
@@ -48,6 +57,7 @@ export class MenuBarService {
 
   destroy(): void {
     settingsService.off('changed', this.settingsChangedHandler);
+    this.menu = null;
     this.tray?.destroy();
     this.tray = null;
   }
@@ -58,31 +68,38 @@ export class MenuBarService {
     }
 
     const settings = settingsService.getSettings();
+    const locale = settings.locale;
+    const providerLabel = getLocalizedProviderLabel(locale, settings.asrProvider);
+    const interactionModeLabel = getLocalizedInteractionMode(locale, settings.interactionMode);
+
     this.tray.setTitle('OT');
     this.tray.setToolTip(
-      `Open Typeless (${settings.asrProvider}, ${settings.interactionMode})`
+      t(locale, 'menu.tooltip', {
+        provider: providerLabel,
+        mode: interactionModeLabel,
+      })
     );
-    const menu = Menu.buildFromTemplate([
+    this.menu = Menu.buildFromTemplate([
       {
-        label: 'Open Typeless',
+        label: t(locale, 'app.title'),
         enabled: false,
       },
       { type: 'separator' },
       {
-        label: 'Open Settings',
+        label: t(locale, 'menu.open_settings'),
         click: () => settingsWindow.show(),
       },
       {
-        label: 'ASR Provider',
+        label: t(locale, 'menu.asr_provider'),
         submenu: [
           {
-            label: 'Volcengine',
+            label: t(locale, 'menu.provider.volcengine'),
             type: 'radio',
             checked: settings.asrProvider === 'volcengine',
             click: () => settingsService.updateSettings({ asrProvider: 'volcengine' }),
           },
           {
-            label: 'Siliconflow',
+            label: t(locale, 'menu.provider.siliconflow'),
             type: 'radio',
             checked: settings.asrProvider === 'siliconflow',
             click: () => settingsService.updateSettings({ asrProvider: 'siliconflow' }),
@@ -90,16 +107,16 @@ export class MenuBarService {
         ],
       },
       {
-        label: 'Interaction Mode',
+        label: t(locale, 'menu.interaction_mode'),
         submenu: [
           {
-            label: 'Hold to Talk',
+            label: t(locale, 'menu.mode.ptt'),
             type: 'radio',
             checked: settings.interactionMode === 'ptt',
             click: () => settingsService.updateSettings({ interactionMode: 'ptt' }),
           },
           {
-            label: 'Toggle Record',
+            label: t(locale, 'menu.mode.toggle'),
             type: 'radio',
             checked: settings.interactionMode === 'toggle',
             click: () => settingsService.updateSettings({ interactionMode: 'toggle' }),
@@ -107,7 +124,53 @@ export class MenuBarService {
         ],
       },
       {
-        label: 'Siliconflow Model',
+        label: t(locale, 'settings.field.audio_warmup'),
+        submenu: [
+          {
+            label: t(locale, 'settings.warmup.off'),
+            type: 'radio',
+            checked: settings.audioWarmupMode === 'off',
+            click: () => settingsService.updateSettings({ audioWarmupMode: 'off' }),
+          },
+          {
+            label: t(locale, 'settings.warmup.short'),
+            type: 'radio',
+            checked: settings.audioWarmupMode === 'short',
+            click: () => settingsService.updateSettings({ audioWarmupMode: 'short' }),
+          },
+          {
+            label: t(locale, 'settings.warmup.extended'),
+            type: 'radio',
+            checked: settings.audioWarmupMode === 'extended',
+            click: () => settingsService.updateSettings({ audioWarmupMode: 'extended' }),
+          },
+        ],
+      },
+      {
+        label: t(locale, 'settings.field.locale'),
+        submenu: [
+          {
+            label: t(locale, 'settings.locale.zh'),
+            type: 'radio',
+            checked: settings.locale === 'zh',
+            click: () => settingsService.updateSettings({ locale: 'zh' }),
+          },
+          {
+            label: t(locale, 'settings.locale.en'),
+            type: 'radio',
+            checked: settings.locale === 'en',
+            click: () => settingsService.updateSettings({ locale: 'en' }),
+          },
+          {
+            label: t(locale, 'settings.locale.ja'),
+            type: 'radio',
+            checked: settings.locale === 'ja',
+            click: () => settingsService.updateSettings({ locale: 'ja' }),
+          },
+        ],
+      },
+      {
+        label: t(locale, 'menu.siliconflow_model'),
         submenu: [
           {
             label: 'TeleAI/TeleSpeechASR',
@@ -131,12 +194,12 @@ export class MenuBarService {
       },
       { type: 'separator' },
       {
-        label: 'Quit',
+        label: t(locale, 'menu.quit'),
         click: () => app.quit(),
       },
     ]);
 
-    this.tray.setContextMenu(menu);
+    this.tray.setContextMenu(this.menu);
   }
 }
 

@@ -19,6 +19,12 @@ export const IPC_CHANNELS = {
     LEVEL: 'asr:level',
     /** Audio spectrum bins (Renderer -> Main -> Renderer) */
     SPECTRUM: 'asr:spectrum',
+    /** Recorder capture readiness (Renderer -> Main -> Renderer) */
+    CAPTURE_READY: 'asr:capture-ready',
+    /** Performance telemetry (Renderer -> Main) */
+    PERF: 'asr:perf',
+    /** Session context for performance correlation (Main -> Renderer) */
+    PERF_CONTEXT: 'asr:perf-context',
     /** ASR error (Main -> Renderer) */
     ERROR: 'asr:error',
   },

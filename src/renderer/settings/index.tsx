@@ -3,10 +3,13 @@ import { createRoot } from 'react-dom/client';
 import '../../index.css';
 import '../src/styles/settings/settings.css';
 import type { AppSettings } from '../../shared/types/settings';
+import { getLocalizedInteractionMode, getLocalizedProviderLabel, t } from '../../shared/i18n';
 
 const initialSettings: AppSettings = {
   asrProvider: 'volcengine',
+  locale: 'zh',
   interactionMode: 'ptt',
+  audioWarmupMode: 'short',
   siliconflowModel: 'TeleAI/TeleSpeechASR',
   siliconflowLanguage: 'zh',
   siliconflowBaseUrl: 'https://copilot.logic.heiyu.space/providers/siliconflow/v1',
@@ -14,24 +17,27 @@ const initialSettings: AppSettings = {
 
 function SettingsApp() {
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
-  const [status, setStatus] = useState('Loading settings...');
+  const [statusKey, setStatusKey] = useState<
+    'settings.status.loading' | 'settings.status.changes_apply' | 'settings.status.updated' | 'settings.status.saved'
+  >('settings.status.loading');
+  const locale = settings.locale;
 
   useEffect(() => {
     void window.api.settings.get().then((nextSettings) => {
       setSettings(nextSettings);
-      setStatus('Changes apply to the next recording session.');
+      setStatusKey('settings.status.changes_apply');
     });
 
     return window.api.settings.onChanged((nextSettings) => {
       setSettings(nextSettings);
-      setStatus('Settings updated.');
+      setStatusKey('settings.status.updated');
     });
   }, []);
 
   const updateSettings = async (update: Partial<AppSettings>) => {
     const nextSettings = await window.api.settings.update(update);
     setSettings(nextSettings);
-    setStatus('Settings saved.');
+    setStatusKey('settings.status.saved');
   };
 
   return (
@@ -39,17 +45,32 @@ function SettingsApp() {
       <section className="settings-shell">
         <div className="settings-card__header">
           <div>
-            <p className="settings-eyebrow">Menu Bar Utility</p>
-            <h1>Open Typeless</h1>
+            <p className="settings-eyebrow">{t(locale, 'settings.eyebrow')}</p>
+            <h1>{t(locale, 'app.title')}</h1>
           </div>
-          <p className="settings-status">{status}</p>
+          <p className="settings-status">{t(locale, statusKey)}</p>
         </div>
 
         <section className="settings-group">
-          <p className="settings-group__title">Recording</p>
+          <p className="settings-group__title">{t(locale, 'settings.group.recording')}</p>
 
           <label className="settings-row">
-            <span className="settings-row__label">ASR Provider</span>
+            <span className="settings-row__label">{t(locale, 'settings.field.locale')}</span>
+            <select
+              value={settings.locale}
+              onChange={(event) =>
+                void updateSettings({
+                  locale: event.target.value as AppSettings['locale'],
+                })}
+            >
+              <option value="zh">{t(locale, 'settings.locale.zh')}</option>
+              <option value="en">{t(locale, 'settings.locale.en')}</option>
+              <option value="ja">{t(locale, 'settings.locale.ja')}</option>
+            </select>
+          </label>
+
+          <label className="settings-row">
+            <span className="settings-row__label">{t(locale, 'settings.field.provider')}</span>
             <select
               value={settings.asrProvider}
               onChange={(event) =>
@@ -57,13 +78,19 @@ function SettingsApp() {
                   asrProvider: event.target.value as AppSettings['asrProvider'],
                 })}
             >
-              <option value="volcengine">Volcengine</option>
-              <option value="siliconflow">Siliconflow</option>
+              <option value="volcengine">
+                {getLocalizedProviderLabel(locale, 'volcengine')}
+              </option>
+              <option value="siliconflow">
+                {getLocalizedProviderLabel(locale, 'siliconflow')}
+              </option>
             </select>
           </label>
 
           <label className="settings-row">
-            <span className="settings-row__label">Interaction Mode</span>
+            <span className="settings-row__label">
+              {t(locale, 'settings.field.interaction_mode')}
+            </span>
             <select
               value={settings.interactionMode}
               onChange={(event) =>
@@ -71,17 +98,34 @@ function SettingsApp() {
                   interactionMode: event.target.value as AppSettings['interactionMode'],
                 })}
             >
-              <option value="ptt">Hold to Talk</option>
-              <option value="toggle">Toggle Record</option>
+              <option value="ptt">{getLocalizedInteractionMode(locale, 'ptt')}</option>
+              <option value="toggle">{getLocalizedInteractionMode(locale, 'toggle')}</option>
+            </select>
+          </label>
+
+          <label className="settings-row">
+            <span className="settings-row__label">
+              {t(locale, 'settings.field.audio_warmup')}
+            </span>
+            <select
+              value={settings.audioWarmupMode}
+              onChange={(event) =>
+                void updateSettings({
+                  audioWarmupMode: event.target.value as AppSettings['audioWarmupMode'],
+                })}
+            >
+              <option value="off">{t(locale, 'settings.warmup.off')}</option>
+              <option value="short">{t(locale, 'settings.warmup.short')}</option>
+              <option value="extended">{t(locale, 'settings.warmup.extended')}</option>
             </select>
           </label>
         </section>
 
         <section className="settings-group">
-          <p className="settings-group__title">Siliconflow</p>
+          <p className="settings-group__title">{t(locale, 'settings.group.siliconflow')}</p>
 
           <label className="settings-row">
-            <span className="settings-row__label">Model</span>
+            <span className="settings-row__label">{t(locale, 'settings.field.model')}</span>
             <select
               value={settings.siliconflowModel}
               onChange={(event) =>
@@ -93,7 +137,7 @@ function SettingsApp() {
           </label>
 
           <label className="settings-row">
-            <span className="settings-row__label">Language</span>
+            <span className="settings-row__label">{t(locale, 'settings.field.language')}</span>
             <input
               type="text"
               value={settings.siliconflowLanguage}
@@ -110,7 +154,7 @@ function SettingsApp() {
           </label>
 
           <label className="settings-row settings-row--stacked">
-            <span className="settings-row__label">Base URL</span>
+            <span className="settings-row__label">{t(locale, 'settings.field.base_url')}</span>
             <input
               type="text"
               value={settings.siliconflowBaseUrl}
@@ -130,10 +174,9 @@ function SettingsApp() {
         </section>
 
         <div className="settings-note">
-          <strong>Tip</strong>
+          <strong>{t(locale, 'settings.note.title')}</strong>
           <span>
-            The menu bar item can switch provider, interaction mode, and
-            Siliconflow model without reopening this panel.
+            {t(locale, 'settings.note.body')}
           </span>
         </div>
       </section>

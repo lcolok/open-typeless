@@ -27,6 +27,20 @@ export interface ASRResult {
   isFinal: boolean;
 }
 
+export interface ASRPerfContext {
+  sessionId: string;
+  startedAtMs: number;
+}
+
+export interface ASRPerfEvent {
+  sessionId: string;
+  stage: string;
+  timestampMs: number;
+  sinceStartMs?: number;
+  durationMs?: number;
+  details?: Record<string, unknown>;
+}
+
 /**
  * ASR status states.
  * - idle: Not started

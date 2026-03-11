@@ -26,7 +26,7 @@ import { ErrorDisplay } from './ErrorDisplay';
  * ```
  */
 export function FloatingWindow(): ReactElement {
-  const { status, result, error } = useASRStatus();
+  const { status, captureReady, result, error } = useASRStatus();
 
   // Determine what to show based on status
   // FIX: Show transcript during listening state for real-time streaming display
@@ -41,7 +41,7 @@ export function FloatingWindow(): ReactElement {
     <div className="floating-window">
       <div className="floating-window__content">
         {/* Status indicator - always visible */}
-        {showStatusIndicator && <StatusIndicator status={status} />}
+        {showStatusIndicator && <StatusIndicator status={status} captureReady={captureReady} />}
 
         {/* Transcript display - show during listening, processing, and done */}
         {hasTranscriptText && result && (

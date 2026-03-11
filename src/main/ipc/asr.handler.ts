@@ -8,7 +8,7 @@ import log from 'electron-log';
 import { IPC_CHANNELS } from '../../shared/constants/channels';
 import { asrService } from '../services/asr/asr.service';
 import { startASR, stopASR } from '../services/asr/procedures';
-import type { ASRConfig } from '../../shared/types/asr';
+import type { ASRConfig, ASRPerfEvent } from '../../shared/types/asr';
 
 const logger = log.scope('asr-handler');
 
@@ -69,6 +69,14 @@ export function setupASRHandlers(): void {
 
   ipcMain.on(IPC_CHANNELS.ASR.SPECTRUM, (_event, spectrum: number[]) => {
     broadcastToAllWindows(IPC_CHANNELS.ASR.SPECTRUM, spectrum);
+  });
+
+  ipcMain.on(IPC_CHANNELS.ASR.CAPTURE_READY, (_event, ready: boolean) => {
+    broadcastToAllWindows(IPC_CHANNELS.ASR.CAPTURE_READY, ready);
+  });
+
+  ipcMain.on(IPC_CHANNELS.ASR.PERF, (_event, perfEvent: ASRPerfEvent) => {
+    logger.info('Performance telemetry', perfEvent);
   });
 
   // Forward service events to renderer

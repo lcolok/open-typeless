@@ -1,8 +1,13 @@
 import { BrowserWindow } from 'electron';
 import path from 'node:path';
+import { t } from '../../shared/i18n';
+import { settingsService } from '../services/settings';
 
 export class SettingsWindowManager {
   private window: BrowserWindow | null = null;
+  private readonly settingsChangedHandler = (): void => {
+    this.updateTitle();
+  };
 
   create(): void {
     if (this.window) {
@@ -12,7 +17,7 @@ export class SettingsWindowManager {
     this.window = new BrowserWindow({
       width: 560,
       height: 660,
-      title: 'Open Typeless Settings',
+      title: t(settingsService.getSettings().locale, 'app.title'),
       show: false,
       resizable: false,
       minimizable: false,
@@ -47,6 +52,9 @@ export class SettingsWindowManager {
     this.window.on('closed', () => {
       this.window = null;
     });
+
+    settingsService.on('changed', this.settingsChangedHandler);
+    this.updateTitle();
   }
 
   show(): void {
@@ -63,9 +71,18 @@ export class SettingsWindowManager {
       return;
     }
 
+    settingsService.off('changed', this.settingsChangedHandler);
     this.window.removeAllListeners('close');
     this.window.close();
     this.window = null;
+  }
+
+  private updateTitle(): void {
+    if (!this.window) {
+      return;
+    }
+
+    this.window.setTitle(t(settingsService.getSettings().locale, 'app.title'));
   }
 }
 

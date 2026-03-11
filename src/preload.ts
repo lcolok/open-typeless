@@ -8,7 +8,13 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from './shared/constants/channels';
-import type { ASRConfig, ASRResult, ASRStatus } from './shared/types/asr';
+import type {
+  ASRConfig,
+  ASRPerfContext,
+  ASRPerfEvent,
+  ASRResult,
+  ASRStatus,
+} from './shared/types/asr';
 import type { AppSettings, AppSettingsUpdate } from './shared/types/settings';
 
 /**
@@ -50,6 +56,14 @@ const asrApi = {
    */
   sendSpectrum: (spectrum: number[]): void => {
     ipcRenderer.send(IPC_CHANNELS.ASR.SPECTRUM, spectrum);
+  },
+
+  sendCaptureReady: (ready: boolean): void => {
+    ipcRenderer.send(IPC_CHANNELS.ASR.CAPTURE_READY, ready);
+  },
+
+  reportPerf: (event: ASRPerfEvent): void => {
+    ipcRenderer.send(IPC_CHANNELS.ASR.PERF, event);
   },
 
   /**
@@ -112,6 +126,16 @@ const asrApi = {
     };
   },
 
+  onCaptureReady: (callback: (ready: boolean) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, ready: boolean): void => {
+      callback(ready);
+    };
+    ipcRenderer.on(IPC_CHANNELS.ASR.CAPTURE_READY, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.ASR.CAPTURE_READY, handler);
+    };
+  },
+
   /**
    * Subscribe to ASR errors.
    * @param callback - Called when ASR error occurs
@@ -124,6 +148,19 @@ const asrApi = {
     ipcRenderer.on(IPC_CHANNELS.ASR.ERROR, handler);
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.ASR.ERROR, handler);
+    };
+  },
+
+  onPerfContext: (callback: (context: ASRPerfContext) => void): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      context: ASRPerfContext
+    ): void => {
+      callback(context);
+    };
+    ipcRenderer.on(IPC_CHANNELS.ASR.PERF_CONTEXT, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.ASR.PERF_CONTEXT, handler);
     };
   },
 };

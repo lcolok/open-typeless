@@ -23,6 +23,17 @@ export type AudioChunkCallback = (chunk: ArrayBuffer) => void;
 export type AudioSpectrumCallback = (spectrum: number[]) => void;
 
 /**
+ * Callback invoked with performance telemetry from the recorder lifecycle.
+ */
+export type AudioPerfCallback = (
+  stage: string,
+  details?: Record<string, unknown>,
+  durationMs?: number
+) => void;
+
+export type AudioReadyCallback = () => void;
+
+/**
  * Callback function type for state changes.
  */
 export type StateChangeCallback = (state: AudioRecorderState) => void;

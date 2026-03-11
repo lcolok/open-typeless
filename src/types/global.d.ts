@@ -3,7 +3,13 @@
  * Extends the Window interface with the exposed API.
  */
 
-import type { ASRConfig, ASRResult, ASRStatus } from '../shared/types/asr';
+import type {
+  ASRConfig,
+  ASRPerfContext,
+  ASRPerfEvent,
+  ASRResult,
+  ASRStatus,
+} from '../shared/types/asr';
 import type { AppSettings, AppSettingsUpdate } from '../shared/types/settings';
 
 /**
@@ -38,6 +44,12 @@ interface ASRApi {
    * @param spectrum - Normalized frequency bins in range 0..1
    */
   sendSpectrum: (spectrum: number[]) => void;
+  sendCaptureReady: (ready: boolean) => void;
+
+  /**
+   * Report renderer-side performance telemetry to the main process log.
+   */
+  reportPerf: (event: ASRPerfEvent) => void;
 
   /**
    * Subscribe to ASR results.
@@ -66,6 +78,7 @@ interface ASRApi {
    * @returns Unsubscribe function
    */
   onSpectrum: (callback: (spectrum: number[]) => void) => () => void;
+  onCaptureReady: (callback: (ready: boolean) => void) => () => void;
 
   /**
    * Subscribe to ASR errors.
@@ -73,6 +86,11 @@ interface ASRApi {
    * @returns Unsubscribe function
    */
   onError: (callback: (error: string) => void) => () => void;
+
+  /**
+   * Subscribe to per-session performance context updates.
+   */
+  onPerfContext: (callback: (context: ASRPerfContext) => void) => () => void;
 }
 
 /**

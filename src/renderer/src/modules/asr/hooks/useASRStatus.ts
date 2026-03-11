@@ -12,6 +12,8 @@ import type { ASRResult, ASRStatus } from '../../../../../shared/types/asr';
 export interface UseASRStatusReturn {
   /** Current ASR status */
   status: ASRStatus;
+  /** Whether microphone capture is actually producing data */
+  captureReady: boolean;
   /** Latest ASR result (interim or final) */
   result: ASRResult | null;
   /** Error message if any */
@@ -40,6 +42,7 @@ export interface UseASRStatusReturn {
  */
 export function useASRStatus(): UseASRStatusReturn {
   const [status, setStatus] = useState<ASRStatus>('idle');
+  const [captureReady, setCaptureReady] = useState(false);
   const [result, setResult] = useState<ASRResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +57,9 @@ export function useASRStatus(): UseASRStatusReturn {
     // Clear error when status changes (except to error state)
     const unsubscribeStatus = window.api.asr.onStatus((newStatus) => {
       setStatus(newStatus);
+      if (newStatus !== 'listening') {
+        setCaptureReady(false);
+      }
       if (newStatus !== 'error') {
         setError(null);
       }
@@ -67,6 +73,10 @@ export function useASRStatus(): UseASRStatusReturn {
       setResult(newResult);
     });
 
+    const unsubscribeCaptureReady = window.api.asr.onCaptureReady((ready) => {
+      setCaptureReady(ready);
+    });
+
     const unsubscribeError = window.api.asr.onError((errorMessage) => {
       setError(errorMessage);
       setStatus('error');
@@ -76,12 +86,14 @@ export function useASRStatus(): UseASRStatusReturn {
     return () => {
       unsubscribeStatus();
       unsubscribeResult();
+      unsubscribeCaptureReady();
       unsubscribeError();
     };
   }, []);
 
   return {
     status,
+    captureReady,
     result,
     error,
     clear,

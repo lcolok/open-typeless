@@ -109,6 +109,15 @@ body {
 
 .status-indicator__left {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.status-indicator__title-row {
+  display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -124,11 +133,33 @@ body {
 }
 
 .status-indicator__label {
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 255, 255, 0.8);
   /* Status bar font size: 11px */
   font-size: 11px;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1;
+}
+
+.status-indicator__detail {
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 10px;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+}
+
+.status-indicator__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 16px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .status-indicator__meter {
@@ -139,6 +170,10 @@ body {
   opacity: 0.96;
 }
 
+.status-indicator__meter--ambient {
+  opacity: 0.9;
+}
+
 /* Idle state - gray dot */
 .status-indicator--idle .status-indicator__dot {
   background: #48484a;
@@ -146,7 +181,13 @@ body {
 
 /* Connecting state - red dot (connecting to ASR) */
 .status-indicator--connecting .status-indicator__dot {
-  background: #ff453a;
+  background: #ff9f0a;
+  box-shadow: 0 0 8px rgba(255, 159, 10, 0.45);
+}
+
+.status-indicator--connecting .status-indicator__badge {
+  background: rgba(255, 159, 10, 0.16);
+  color: #ffd08a;
 }
 
 /* Listening state - red dot with breathing animation + glow */
@@ -173,6 +214,16 @@ body {
 /* Processing state - red dot, no animation */
 .status-indicator--processing .status-indicator__dot {
   background: #ff453a;
+}
+
+.status-indicator--listening .status-indicator__badge {
+  background: rgba(48, 209, 88, 0.16);
+  color: #8df0ac;
+}
+
+.status-indicator--processing .status-indicator__badge {
+  background: rgba(10, 132, 255, 0.16);
+  color: #9fc9ff;
 }
 
 /* Pasting state - gray dot */

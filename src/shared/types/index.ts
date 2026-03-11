@@ -14,5 +14,7 @@ export type {
 export type {
   AppSettings,
   AppSettingsUpdate,
+  AppLocale,
+  AudioWarmupMode,
   InteractionMode,
 } from './settings';

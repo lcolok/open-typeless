@@ -10,6 +10,8 @@ import { SiliconflowClient, VolcengineClient } from './lib';
 import { loadASRConfig, ConfigurationError } from './lib/config';
 import { floatingWindow } from '../../windows';
 import type { ASRConfig, ASRResult, ASRStatus } from '../../../shared/types/asr';
+import { settingsService } from '../settings';
+import { t } from '../../../shared/i18n';
 import type { ASRClient, ResolvedASRConfig } from './types';
 
 const logger = log.scope('asr-service');
@@ -138,7 +140,11 @@ export class ASRService extends EventEmitter {
       logger.error('Failed to connect to ASR service', { error: err.message });
       this.updateStatus('error');
       this.emit('error', err);
-      floatingWindow.sendError(`Connection failed: ${err.message}`);
+      floatingWindow.sendError(
+        t(settingsService.getSettings().locale, 'error.connection_failed', {
+          message: err.message,
+        })
+      );
       this.cleanup();
       throw err;
     }
