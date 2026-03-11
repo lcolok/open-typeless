@@ -15,6 +15,10 @@ export const IPC_CHANNELS = {
     RESULT: 'asr:result',
     /** ASR status change (Main -> Renderer) */
     STATUS: 'asr:status',
+    /** Audio input level (Renderer -> Main -> Renderer) */
+    LEVEL: 'asr:level',
+    /** Audio spectrum bins (Renderer -> Main -> Renderer) */
+    SPECTRUM: 'asr:spectrum',
     /** ASR error (Main -> Renderer) */
     ERROR: 'asr:error',
   },

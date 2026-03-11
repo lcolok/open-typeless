@@ -3,7 +3,7 @@
  * Displays error messages in a visually distinct style.
  */
 
-import type { ReactNode } from 'react';
+import type { ReactElement } from 'react';
 
 interface ErrorDisplayProps {
   /** Error message to display */
@@ -18,7 +18,7 @@ interface ErrorDisplayProps {
  * <ErrorDisplay message="Connection failed. Please try again." />
  * ```
  */
-export function ErrorDisplay({ message }: ErrorDisplayProps): ReactNode {
+export function ErrorDisplay({ message }: ErrorDisplayProps): ReactElement | null {
   // Don't render if no message
   if (!message) {
     return null;

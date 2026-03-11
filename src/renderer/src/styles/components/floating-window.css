@@ -95,7 +95,8 @@ body {
   display: flex;
   /* Vertically center dot and label */
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   /* Status bar min-height to accommodate dot animation (6px * 1.2 scale = ~8px) */
   min-height: 16px;
   /* Bottom padding before border */
@@ -104,6 +105,13 @@ body {
   flex-shrink: 0;
   /* Ensure animated dot glow/scale doesn't get clipped */
   overflow: visible;
+}
+
+.status-indicator__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .status-indicator__dot {
@@ -121,6 +129,14 @@ body {
   font-size: 11px;
   font-weight: 400;
   line-height: 1;
+}
+
+.status-indicator__meter {
+  display: block;
+  height: 28px;
+  width: 78px;
+  flex-shrink: 0;
+  opacity: 0.96;
 }
 
 /* Idle state - gray dot */

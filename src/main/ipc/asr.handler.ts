@@ -63,6 +63,14 @@ export function setupASRHandlers(): void {
     asrService.processAudioChunk(chunk);
   });
 
+  ipcMain.on(IPC_CHANNELS.ASR.LEVEL, (_event, level: number) => {
+    broadcastToAllWindows(IPC_CHANNELS.ASR.LEVEL, level);
+  });
+
+  ipcMain.on(IPC_CHANNELS.ASR.SPECTRUM, (_event, spectrum: number[]) => {
+    broadcastToAllWindows(IPC_CHANNELS.ASR.SPECTRUM, spectrum);
+  });
+
   // Forward service events to renderer
   setupServiceEventForwarding();
 }

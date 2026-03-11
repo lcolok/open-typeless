@@ -4,7 +4,7 @@
  * Measures content height and notifies main process for window adaptation.
  */
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactElement } from 'react';
 
 interface TranscriptDisplayProps {
   /** Transcribed text to display */
@@ -26,7 +26,10 @@ interface TranscriptDisplayProps {
  * <TranscriptDisplay text="Hello world" interim={false} />
  * ```
  */
-export function TranscriptDisplay({ text, interim = false }: TranscriptDisplayProps): ReactNode {
+export function TranscriptDisplay({
+  text,
+  interim = false,
+}: TranscriptDisplayProps): ReactElement | null {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Measure content height, notify main process, and auto-scroll to bottom

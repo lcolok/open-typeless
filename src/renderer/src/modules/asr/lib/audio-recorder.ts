@@ -10,6 +10,7 @@ import { AUDIO_CONFIG, AUDIO_ERRORS } from '../constants';
 import { float32ToArrayBuffer } from './pcm-converter';
 import type {
   AudioChunkCallback,
+  AudioSpectrumCallback,
   AudioRecorderState,
   AudioResources,
   StateChangeCallback,
@@ -48,7 +49,50 @@ export class AudioRecorder {
 
   private resources: AudioResources | null = null;
   private onAudioChunk: AudioChunkCallback;
+  private onSpectrum: AudioSpectrumCallback | null;
   private onStateChange: StateChangeCallback | null;
+  private spectrumFrameId: number | null = null;
+
+  private async getPreferredDeviceId(): Promise<string | undefined> {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      return undefined;
+    }
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioInputs = devices.filter(
+      (device) => device.kind === 'audioinput'
+    );
+
+    if (audioInputs.length === 0) {
+      return undefined;
+    }
+
+    const bluetoothPattern =
+      /airpods|airpods pro|bluetooth|buds|headset|hands-free/i;
+
+    const preferredDevice =
+      audioInputs.find(
+        (device) =>
+          device.deviceId === 'default' &&
+          bluetoothPattern.test(device.label)
+      ) ??
+      audioInputs.find((device) => bluetoothPattern.test(device.label)) ??
+      audioInputs.find((device) => device.deviceId === 'default');
+
+    console.log(
+      '[AudioRecorder] Available audio inputs:',
+      audioInputs.map((device) => ({
+        id: device.deviceId,
+        label: device.label || '(unlabeled)',
+      }))
+    );
+    console.log('[AudioRecorder] Selected audio input:', {
+      id: preferredDevice?.deviceId ?? '(system default)',
+      label: preferredDevice?.label || '(system default)',
+    });
+
+    return preferredDevice?.deviceId;
+  }
 
   /**
    * Creates a new AudioRecorder instance.
@@ -58,10 +102,12 @@ export class AudioRecorder {
    */
   constructor(
     onAudioChunk: AudioChunkCallback,
-    onStateChange?: StateChangeCallback
+    onStateChange?: StateChangeCallback,
+    onSpectrum?: AudioSpectrumCallback
   ) {
     this.onAudioChunk = onAudioChunk;
     this.onStateChange = onStateChange ?? null;
+    this.onSpectrum = onSpectrum ?? null;
   }
 
   /**
@@ -99,9 +145,15 @@ export class AudioRecorder {
   private cleanupResources(): void {
     if (!this.resources) return;
 
+    if (this.spectrumFrameId !== null) {
+      cancelAnimationFrame(this.spectrumFrameId);
+      this.spectrumFrameId = null;
+    }
+
     // Disconnect and close audio nodes
     this.resources.processorNode.disconnect();
     this.resources.sourceNode.disconnect();
+    this.resources.analyserNode.disconnect();
 
     // Stop all media stream tracks
     this.resources.stream.getTracks().forEach((track: MediaStreamTrack) => {
@@ -112,6 +164,44 @@ export class AudioRecorder {
     void this.resources.audioContext.close();
 
     this.resources = null;
+  }
+
+  private startSpectrumLoop(): void {
+    if (!this.resources?.analyserNode || !this.onSpectrum) {
+      return;
+    }
+
+    const analyser = this.resources.analyserNode;
+    const frequencyData = new Uint8Array(analyser.frequencyBinCount);
+    const outputBins = 11;
+
+    const tick = (): void => {
+      analyser.getByteFrequencyData(frequencyData);
+
+      const spectrum = Array.from({ length: outputBins }, (_, index) => {
+        const start = Math.floor((index / outputBins) * frequencyData.length);
+        const end = Math.floor(((index + 1) / outputBins) * frequencyData.length);
+        let sum = 0;
+        let count = 0;
+
+        for (let i = start; i < end; i++) {
+          sum += frequencyData[i];
+          count++;
+        }
+
+        if (count === 0) {
+          return 0;
+        }
+
+        const average = sum / count / 255;
+        return Math.min(1, Math.pow(average, 0.85) * 1.35);
+      });
+
+      this.onSpectrum?.(spectrum);
+      this.spectrumFrameId = requestAnimationFrame(tick);
+    };
+
+    tick();
   }
 
   /**
@@ -140,15 +230,30 @@ export class AudioRecorder {
         return;
       }
 
+      const preferredDeviceId = await this.getPreferredDeviceId();
+
       // Request microphone access with audio constraints
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
+          ...(preferredDeviceId
+            ? {
+                deviceId: preferredDeviceId === 'default'
+                  ? undefined
+                  : { exact: preferredDeviceId },
+              }
+            : {}),
           sampleRate: AUDIO_CONFIG.sampleRate,
           channelCount: AUDIO_CONFIG.channelCount,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
         },
+      });
+
+      const activeTrack = stream.getAudioTracks()[0];
+      console.log('[AudioRecorder] Active input track:', {
+        label: activeTrack?.label || '(unknown)',
+        settings: activeTrack?.getSettings?.(),
       });
 
       // Create AudioContext with desired sample rate
@@ -158,6 +263,11 @@ export class AudioRecorder {
 
       // Create source node from media stream
       const sourceNode = audioContext.createMediaStreamSource(stream);
+      const analyserNode = audioContext.createAnalyser();
+      analyserNode.fftSize = 512;
+      analyserNode.smoothingTimeConstant = 0.82;
+      analyserNode.minDecibels = -90;
+      analyserNode.maxDecibels = -18;
 
       // Create ScriptProcessorNode for audio processing
       // Note: ScriptProcessorNode is deprecated but still widely supported
@@ -184,6 +294,7 @@ export class AudioRecorder {
       };
 
       // Connect the audio graph: source -> processor -> destination
+      sourceNode.connect(analyserNode);
       sourceNode.connect(processorNode);
       // Connect to destination to ensure onaudioprocess fires
       // The audio won't actually play because we're not outputting anything meaningful
@@ -195,9 +306,11 @@ export class AudioRecorder {
         audioContext,
         sourceNode,
         processorNode,
+        analyserNode,
       };
 
       this.setState({ isRecording: true });
+      this.startSpectrumLoop();
     } catch (err) {
       // Handle specific error types
       if (err instanceof DOMException) {
@@ -223,6 +336,7 @@ export class AudioRecorder {
 
       // Clean up any partially created resources
       this.cleanupResources();
+      this.onSpectrum?.(Array(11).fill(0));
     }
   }
 
@@ -236,6 +350,7 @@ export class AudioRecorder {
 
     this.cleanupResources();
     this.setState({ isRecording: false });
+    this.onSpectrum?.(Array(11).fill(0));
   }
 
   /**
@@ -244,5 +359,6 @@ export class AudioRecorder {
   public destroy(): void {
     this.stop();
     this.onStateChange = null;
+    this.onSpectrum = null;
   }
 }

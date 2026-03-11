@@ -51,6 +51,7 @@ export type { UseAudioRecorderReturn, UseASRStatusReturn } from './hooks';
 export type {
   AudioRecorderState,
   AudioChunkCallback,
+  AudioSpectrumCallback,
   StateChangeCallback,
   AudioResources,
 } from './types';

@@ -27,6 +27,18 @@ interface ASRApi {
   sendAudio: (chunk: ArrayBuffer) => void;
 
   /**
+   * Send microphone level for visualization.
+   * @param level - Normalized level in range 0..1
+   */
+  sendLevel: (level: number) => void;
+
+  /**
+   * Send microphone spectrum bins for visualization.
+   * @param spectrum - Normalized frequency bins in range 0..1
+   */
+  sendSpectrum: (spectrum: number[]) => void;
+
+  /**
    * Subscribe to ASR results.
    * @param callback - Called when ASR result is received
    * @returns Unsubscribe function
@@ -39,6 +51,20 @@ interface ASRApi {
    * @returns Unsubscribe function
    */
   onStatus: (callback: (status: ASRStatus) => void) => () => void;
+
+  /**
+   * Subscribe to microphone level changes.
+   * @param callback - Called when input level changes
+   * @returns Unsubscribe function
+   */
+  onLevel: (callback: (level: number) => void) => () => void;
+
+  /**
+   * Subscribe to microphone spectrum changes.
+   * @param callback - Called when spectrum changes
+   * @returns Unsubscribe function
+   */
+  onSpectrum: (callback: (spectrum: number[]) => void) => () => void;
 
   /**
    * Subscribe to ASR errors.

@@ -36,6 +36,22 @@ const asrApi = {
   },
 
   /**
+   * Send microphone input level to main process for floating window visualization.
+   * @param level - Normalized level in range 0..1
+   */
+  sendLevel: (level: number): void => {
+    ipcRenderer.send(IPC_CHANNELS.ASR.LEVEL, level);
+  },
+
+  /**
+   * Send microphone spectrum bins to main process for visualization.
+   * @param spectrum - Normalized frequency bins in range 0..1
+   */
+  sendSpectrum: (spectrum: number[]): void => {
+    ipcRenderer.send(IPC_CHANNELS.ASR.SPECTRUM, spectrum);
+  },
+
+  /**
    * Subscribe to ASR results.
    * @param callback - Called when ASR result is received
    * @returns Unsubscribe function
@@ -62,6 +78,36 @@ const asrApi = {
     ipcRenderer.on(IPC_CHANNELS.ASR.STATUS, handler);
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.ASR.STATUS, handler);
+    };
+  },
+
+  /**
+   * Subscribe to microphone level changes.
+   * @param callback - Called when level changes
+   * @returns Unsubscribe function
+   */
+  onLevel: (callback: (level: number) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, level: number): void => {
+      callback(level);
+    };
+    ipcRenderer.on(IPC_CHANNELS.ASR.LEVEL, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.ASR.LEVEL, handler);
+    };
+  },
+
+  /**
+   * Subscribe to microphone spectrum changes.
+   * @param callback - Called when spectrum changes
+   * @returns Unsubscribe function
+   */
+  onSpectrum: (callback: (spectrum: number[]) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, spectrum: number[]): void => {
+      callback(spectrum);
+    };
+    ipcRenderer.on(IPC_CHANNELS.ASR.SPECTRUM, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.ASR.SPECTRUM, handler);
     };
   },
 

@@ -57,6 +57,9 @@ export class FloatingWindowManager {
   private autoHideTimer: NodeJS.Timeout | null = null;
   /** Current window height for debounce comparison */
   private currentHeight: number = FLOATING_WINDOW_CONFIG.MIN_HEIGHT;
+  private isReady = false;
+  private readyPromise: Promise<void> | null = null;
+  private resolveReady: (() => void) | null = null;
 
   /**
    * Create the floating window.
@@ -66,6 +69,11 @@ export class FloatingWindowManager {
     if (this.window) {
       return;
     }
+
+    this.isReady = false;
+    this.readyPromise = new Promise((resolve) => {
+      this.resolveReady = resolve;
+    });
 
     // Get primary display to calculate centered position
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -98,6 +106,7 @@ export class FloatingWindowManager {
         preload: path.join(__dirname, 'preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
+        backgroundThrottling: false,
       },
     });
 
@@ -127,7 +136,31 @@ export class FloatingWindowManager {
     // Clean up reference when window is destroyed
     this.window.on('closed', () => {
       this.window = null;
+      this.isReady = false;
+      this.readyPromise = null;
+      this.resolveReady = null;
     });
+
+    this.window.webContents.once('did-finish-load', () => {
+      this.isReady = true;
+      this.resolveReady?.();
+      this.resolveReady = null;
+    });
+
+    this.window.webContents.once('did-fail-load', () => {
+      this.resolveReady?.();
+      this.resolveReady = null;
+    });
+  }
+
+  waitUntilReady(): Promise<void> {
+    if (this.isReady) {
+      return Promise.resolve();
+    }
+    if (!this.window) {
+      this.create();
+    }
+    return this.readyPromise ?? Promise.resolve();
   }
 
   /**
