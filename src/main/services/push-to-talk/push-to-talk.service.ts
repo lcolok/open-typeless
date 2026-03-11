@@ -3,15 +3,9 @@
  * Orchestrates keyboard hooks, ASR, and text insertion for voice input.
  *
  * Flow:
- * 1. User holds Right Option key
- * 2. KeyboardService detects keydown -> triggers handleKeyDown
- * 3. ASR session starts, floating window shows
- * 4. Renderer starts recording, sends audio chunks
- * 5. User releases Right Option key
- * 6. KeyboardService detects keyup -> triggers handleKeyUp
- * 7. ASR session stops, gets final result
- * 8. Text is inserted at cursor position
- * 9. Floating window hides
+ * Supports multiple trigger modes:
+ * - ptt: hold Right Option to record, release to stop
+ * - toggle: press once to start, press again to stop
  */
 
 import { BrowserWindow } from 'electron';
@@ -29,6 +23,8 @@ const logger = log.scope('push-to-talk-service');
  * Push-to-Talk Service configuration.
  */
 export interface PushToTalkConfig {
+  /** Interaction mode for the trigger key */
+  interactionMode: 'ptt' | 'toggle';
   /** Whether to auto-insert text after recognition */
   autoInsertText: boolean;
   /** Delay before hiding floating window after done (ms) */
@@ -39,6 +35,7 @@ export interface PushToTalkConfig {
  * Default configuration.
  */
 const DEFAULT_CONFIG: PushToTalkConfig = {
+  interactionMode: (process.env.ASR_INTERACTION_MODE === 'toggle' ? 'toggle' : 'ptt'),
   autoInsertText: true,
   hideDelayMs: 500,
 };
@@ -65,6 +62,7 @@ export class PushToTalkService {
   private config: PushToTalkConfig;
   private isActive = false;
   private isInitialized = false;
+  private transitionQueue: Promise<void> = Promise.resolve();
 
   constructor(config: Partial<PushToTalkConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -81,6 +79,9 @@ export class PushToTalkService {
     }
 
     logger.info('Initializing PushToTalkService');
+    logger.info('Push-to-talk interaction mode', {
+      mode: this.config.interactionMode,
+    });
 
     // Log permission status for debugging
     permissionsService.logPermissionStatus();
@@ -108,7 +109,7 @@ export class PushToTalkService {
 
     // Stop any active session
     if (this.isActive) {
-      this.handleKeyUp().catch((error) => {
+      this.enqueueTransition(() => this.stopSession()).catch((error) => {
         logger.error('Error during dispose cleanup', { error });
       });
     }
@@ -132,6 +133,48 @@ export class PushToTalkService {
    * Starts ASR session and shows floating window.
    */
   private async handleKeyDown(): Promise<void> {
+    await this.enqueueTransition(async () => {
+      if (this.config.interactionMode === 'toggle') {
+        if (this.isActive) {
+          logger.info('Toggle mode: STOP from key down');
+          await this.stopSession();
+        } else {
+          logger.info('Toggle mode: START from key down');
+          await this.startSession();
+        }
+        return;
+      }
+
+      await this.startSession();
+    });
+  }
+
+  /**
+   * Handle key up event.
+   * Stops ASR session, inserts text, and hides floating window.
+   */
+  private async handleKeyUp(): Promise<void> {
+    if (this.config.interactionMode === 'toggle') {
+      logger.debug('Toggle mode ignores key up');
+      return;
+    }
+
+    await this.enqueueTransition(() => this.stopSession());
+  }
+
+  private enqueueTransition(task: () => Promise<void>): Promise<void> {
+    this.transitionQueue = this.transitionQueue
+      .then(task)
+      .catch((error) => {
+        logger.error('Transition failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+    return this.transitionQueue;
+  }
+
+  private async startSession(): Promise<void> {
     if (this.isActive) {
       logger.warn('Already recording, ignoring key down');
       return;
@@ -166,11 +209,7 @@ export class PushToTalkService {
     }
   }
 
-  /**
-   * Handle key up event (trigger key released).
-   * Stops ASR session, inserts text, and hides floating window.
-   */
-  private async handleKeyUp(): Promise<void> {
+  private async stopSession(): Promise<void> {
     if (!this.isActive) {
       logger.debug('Not recording, ignoring key up');
       return;

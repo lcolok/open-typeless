@@ -110,7 +110,7 @@ export class KeyboardService {
     uIOhook.start();
     this.isStarted = true;
 
-    logger.info('KeyboardService registered: Hold Right Option to trigger');
+    logger.info('KeyboardService registered: Right Option trigger active');
   }
 
   /**

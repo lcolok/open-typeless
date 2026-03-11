@@ -12,6 +12,8 @@ console.log(
 
 // Audio recorder instance
 let recorder: AudioRecorder | null = null;
+let desiredRecording = false;
+let startGeneration = 0;
 
 /**
  * Initialize audio recorder with callback to send chunks to main process.
@@ -24,6 +26,9 @@ function initRecorder(): AudioRecorder {
     },
     (state) => {
       console.log('[Renderer] AudioRecorder state:', state);
+    },
+    (spectrum) => {
+      window.api.asr.sendSpectrum(spectrum);
     }
   );
 }
@@ -36,9 +41,18 @@ async function startRecording(): Promise<void> {
     recorder = initRecorder();
   }
 
+  const generation = ++startGeneration;
+
   try {
     console.log('[Renderer] Starting audio recording...');
     await recorder.start();
+
+    if (generation !== startGeneration || !desiredRecording) {
+      console.log('[Renderer] Discarding stale audio start');
+      recorder.stop();
+      return;
+    }
+
     console.log('[Renderer] Audio recording started');
   } catch (error) {
     console.error('[Renderer] Failed to start recording:', error);
@@ -49,6 +63,9 @@ async function startRecording(): Promise<void> {
  * Stop recording audio.
  */
 function stopRecording(): void {
+  desiredRecording = false;
+  startGeneration += 1;
+
   if (recorder) {
     console.log('[Renderer] Stopping audio recording...');
     recorder.stop();
@@ -68,6 +85,7 @@ window.api.asr.onStatus((status) => {
   currentStatus = status;
 
   if (status === 'listening') {
+    desiredRecording = true;
     // Start recording when ASR is listening
     startRecording();
   } else {
