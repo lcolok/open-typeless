@@ -118,6 +118,20 @@ export class AudioRecorder {
       return undefined;
     }
 
+    // Check if user has manually selected a specific device via settings
+    const settings = await window.api.settings.get();
+    if (settings.localAudioDeviceId && settings.localAudioDeviceId !== 'auto') {
+      const manualDevice = audioInputs.find(
+        (device) => device.deviceId === settings.localAudioDeviceId
+      );
+      if (manualDevice) {
+        console.log('[AudioRecorder] Using manually selected device:', manualDevice.label);
+        return manualDevice.deviceId;
+      }
+      console.warn('[AudioRecorder] Manually selected device not found, falling back to auto');
+    }
+
+    // Auto selection: bluetooth preferred
     const bluetoothPattern =
       /airpods|airpods pro|bluetooth|buds|headset|hands-free/i;
 

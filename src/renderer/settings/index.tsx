@@ -13,6 +13,9 @@ const initialSettings: AppSettings = {
   siliconflowModel: 'TeleAI/TeleSpeechASR',
   siliconflowLanguage: 'zh',
   siliconflowBaseUrl: 'https://copilot.logic.heiyu.space/providers/siliconflow/v1',
+  audioSourceMode: 'auto',
+  localAudioDeviceId: 'auto',
+  transcriptionMode: 'standard',
 };
 
 function SettingsApp() {

@@ -1,31 +1,65 @@
-import { Menu, Tray, nativeImage, app } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
+import { BrowserWindow, Menu, Tray, nativeImage, app, ipcMain } from 'electron';
 import log from 'electron-log';
 import { settingsService } from '../settings';
 import { settingsWindow } from '../../windows';
 import { getLocalizedInteractionMode, getLocalizedProviderLabel, t } from '../../../shared/i18n';
+import { IPC_CHANNELS } from '../../../shared/constants/channels';
+import type { AppSettings } from '../../../shared/types/settings';
+import { audioDiscovery } from '../network-audio-source';
+import { networkAudioSource } from '../network-audio-source';
 
 const logger = log.scope('menu-bar-service');
 
-function createTrayImage() {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
-      <g fill="none" stroke="black" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="6" y="3" width="6" height="8" rx="3" />
-        <path d="M4.5 8.5c0 2.5 2 4.5 4.5 4.5s4.5-2 4.5-4.5" />
-        <path d="M9 13v2.5" />
-        <path d="M6.5 15.5h5" />
-      </g>
-    </svg>
-  `.trim();
+function resolveTrayIconPath(): string | null {
+  const candidates = [
+    path.join(process.cwd(), 'assets', 'tray', 'ot-monogramTemplate.png'),
+    path.join(app.getAppPath(), 'assets', 'tray', 'ot-monogramTemplate.png'),
+    path.resolve(app.getAppPath(), '..', 'assets', 'tray', 'ot-monogramTemplate.png'),
+    path.resolve(__dirname, '../../../../assets/tray/ot-monogramTemplate.png'),
+    path.resolve(__dirname, '../../../../../assets/tray/ot-monogramTemplate.png'),
+  ];
 
-  const image = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  logger.error('Tray icon asset not found', { candidates });
+  return null;
+}
+
+function createTrayImage() {
+  const iconPath = resolveTrayIconPath();
+  if (!iconPath) {
+    return nativeImage.createEmpty();
+  }
+
+  const image = nativeImage.createFromPath(iconPath).resize({ width: 18, height: 18 });
   image.setTemplateImage(true);
+
+  logger.info('Resolved tray icon asset', {
+    iconPath,
+    isEmpty: image.isEmpty(),
+    size: image.getSize(),
+  });
+
   return image;
+}
+
+interface AudioDeviceInfo {
+  deviceId: string;
+  label: string;
 }
 
 export class MenuBarService {
   private tray: Tray | null = null;
   private menu: Menu | null = null;
+  private audioDevices: AudioDeviceInfo[] = [];
+  private statusTimer: ReturnType<typeof setInterval> | null = null;
+  private lastReceivingState = false;
   private readonly settingsChangedHandler = (): void => {
     this.refreshMenu();
   };
@@ -36,14 +70,17 @@ export class MenuBarService {
     }
 
     this.tray = new Tray(createTrayImage());
-    this.tray.setTitle('OT');
+    this.tray.setTitle('');
     this.tray.setToolTip('Open Typeless');
     this.tray.on('click', () => {
+      // Re-enumerate devices every time menu is opened
+      this.requestAudioDevices();
       if (this.tray && this.menu) {
         this.tray.popUpContextMenu(this.menu);
       }
     });
     this.tray.on('right-click', () => {
+      this.requestAudioDevices();
       if (this.tray && this.menu) {
         this.tray.popUpContextMenu(this.menu);
       }
@@ -51,12 +88,37 @@ export class MenuBarService {
 
     settingsService.on('changed', this.settingsChangedHandler);
 
+    // Listen for audio device list from renderer
+    ipcMain.on(IPC_CHANNELS.AUDIO_DEVICES.LIST, (_event, devices: AudioDeviceInfo[]) => {
+      this.audioDevices = devices;
+      this.refreshMenu();
+    });
+
+    // Refresh menu when network devices appear/disappear
+    audioDiscovery.on('device-found', () => this.refreshMenu());
+    audioDiscovery.on('device-lost', () => this.refreshMenu());
+
     this.refreshMenu();
+    this.requestAudioDevices();
+
+    // Poll network audio status every 3s to update menu when board goes online/offline
+    this.statusTimer = setInterval(() => {
+      const receiving = networkAudioSource.isReceiving;
+      if (receiving !== this.lastReceivingState) {
+        this.lastReceivingState = receiving;
+        this.refreshMenu();
+      }
+    }, 3000);
+
     logger.info('Menu bar initialized');
   }
 
   destroy(): void {
     settingsService.off('changed', this.settingsChangedHandler);
+    if (this.statusTimer) {
+      clearInterval(this.statusTimer);
+      this.statusTimer = null;
+    }
     this.menu = null;
     this.tray?.destroy();
     this.tray = null;
@@ -72,37 +134,56 @@ export class MenuBarService {
     const providerLabel = getLocalizedProviderLabel(locale, settings.asrProvider);
     const interactionModeLabel = getLocalizedInteractionMode(locale, settings.interactionMode);
 
-    this.tray.setTitle('OT');
+    this.tray.setTitle('');
     this.tray.setToolTip(
       t(locale, 'menu.tooltip', {
         provider: providerLabel,
         mode: interactionModeLabel,
       })
     );
+    const boardStatus = this.getBoardStatusLabel();
+
     this.menu = Menu.buildFromTemplate([
       {
         label: t(locale, 'app.title'),
         enabled: false,
       },
+      ...(boardStatus ? [{
+        label: boardStatus,
+        enabled: false,
+      }] : []),
       { type: 'separator' },
       {
         label: t(locale, 'menu.open_settings'),
         click: () => settingsWindow.show(),
       },
       {
-        label: t(locale, 'menu.asr_provider'),
+        label: t(locale, 'menu.asr_model'),
         submenu: [
           {
-            label: t(locale, 'menu.provider.volcengine'),
+            label: 'Volcengine/BigModel',
             type: 'radio',
             checked: settings.asrProvider === 'volcengine',
             click: () => settingsService.updateSettings({ asrProvider: 'volcengine' }),
           },
+          { type: 'separator' },
           {
-            label: t(locale, 'menu.provider.siliconflow'),
+            label: 'SiliconFlow/TeleSpeechASR',
             type: 'radio',
-            checked: settings.asrProvider === 'siliconflow',
-            click: () => settingsService.updateSettings({ asrProvider: 'siliconflow' }),
+            checked: settings.asrProvider === 'siliconflow' && settings.siliconflowModel === 'TeleAI/TeleSpeechASR',
+            click: () => settingsService.updateSettings({
+              asrProvider: 'siliconflow',
+              siliconflowModel: 'TeleAI/TeleSpeechASR',
+            }),
+          },
+          {
+            label: 'SiliconFlow/SenseVoiceSmall',
+            type: 'radio',
+            checked: settings.asrProvider === 'siliconflow' && settings.siliconflowModel === 'FunAudioLLM/SenseVoiceSmall',
+            click: () => settingsService.updateSettings({
+              asrProvider: 'siliconflow',
+              siliconflowModel: 'FunAudioLLM/SenseVoiceSmall',
+            }),
           },
         ],
       },
@@ -120,6 +201,45 @@ export class MenuBarService {
             type: 'radio',
             checked: settings.interactionMode === 'toggle',
             click: () => settingsService.updateSettings({ interactionMode: 'toggle' }),
+          },
+        ],
+      },
+      {
+        label: t(locale, 'menu.audio_source'),
+        submenu: [
+          {
+            label: t(locale, 'menu.source.auto'),
+            type: 'radio',
+            checked: settings.audioSourceMode === 'auto',
+            click: () => settingsService.updateSettings({ audioSourceMode: 'auto' }),
+          },
+          {
+            label: this.getNetworkDeviceLabel(locale),
+            type: 'radio',
+            checked: settings.audioSourceMode === 'network',
+            click: () => settingsService.updateSettings({ audioSourceMode: 'network' }),
+          },
+          {
+            label: t(locale, 'menu.source.local') +
+              (settings.audioSourceMode === 'local' ? ' ✓' : ''),
+            submenu: this.buildLocalDeviceSubmenu(settings),
+          },
+        ],
+      },
+      {
+        label: t(locale, 'menu.transcription_mode'),
+        submenu: [
+          {
+            label: t(locale, 'menu.transcription.standard'),
+            type: 'radio',
+            checked: settings.transcriptionMode === 'standard',
+            click: () => settingsService.updateSettings({ transcriptionMode: 'standard' }),
+          },
+          {
+            label: t(locale, 'menu.transcription.streaming'),
+            type: 'radio',
+            checked: settings.transcriptionMode === 'streaming',
+            click: () => settingsService.updateSettings({ transcriptionMode: 'streaming' }),
           },
         ],
       },
@@ -169,29 +289,6 @@ export class MenuBarService {
           },
         ],
       },
-      {
-        label: t(locale, 'menu.siliconflow_model'),
-        submenu: [
-          {
-            label: 'TeleAI/TeleSpeechASR',
-            type: 'radio',
-            checked: settings.siliconflowModel === 'TeleAI/TeleSpeechASR',
-            click: () =>
-              settingsService.updateSettings({
-                siliconflowModel: 'TeleAI/TeleSpeechASR',
-              }),
-          },
-          {
-            label: 'FunAudioLLM/SenseVoiceSmall',
-            type: 'radio',
-            checked: settings.siliconflowModel === 'FunAudioLLM/SenseVoiceSmall',
-            click: () =>
-              settingsService.updateSettings({
-                siliconflowModel: 'FunAudioLLM/SenseVoiceSmall',
-              }),
-          },
-        ],
-      },
       { type: 'separator' },
       {
         label: t(locale, 'menu.quit'),
@@ -200,6 +297,65 @@ export class MenuBarService {
     ]);
 
     this.tray.setContextMenu(this.menu);
+  }
+
+  private buildLocalDeviceSubmenu(settings: AppSettings): Electron.MenuItemConstructorOptions[] {
+    const isLocal = settings.audioSourceMode === 'local';
+    const items: Electron.MenuItemConstructorOptions[] = [
+      {
+        label: '自动选择',
+        type: 'radio',
+        checked: isLocal && settings.localAudioDeviceId === 'auto',
+        click: () => settingsService.updateSettings({ audioSourceMode: 'local', localAudioDeviceId: 'auto' }),
+      },
+    ];
+
+    if (this.audioDevices.length > 0) {
+      items.push({ type: 'separator' });
+      for (const device of this.audioDevices) {
+        if (device.deviceId === 'default') continue;
+        items.push({
+          label: device.label,
+          type: 'radio',
+          checked: isLocal && settings.localAudioDeviceId === device.deviceId,
+          click: () => settingsService.updateSettings({
+            audioSourceMode: 'local',
+            localAudioDeviceId: device.deviceId,
+          }),
+        });
+      }
+    }
+
+    return items;
+  }
+
+  private getBoardStatusLabel(): string | null {
+    const devices = audioDiscovery.discoveredDevices;
+    const isOnline = networkAudioSource.isReceiving;
+
+    if (devices.length === 0 && !isOnline) return null;
+
+    const name = devices.length > 0 ? devices[0].name : '网络麦克风';
+    return isOnline ? `🟢 ${name}` : `⚪ ${name} (离线)`;
+  }
+
+  private getNetworkDeviceLabel(_locale: AppSettings['locale']): string {
+    const devices = audioDiscovery.discoveredDevices;
+    const isOnline = networkAudioSource.isReceiving;
+
+    if (devices.length > 0) {
+      const name = devices[0].name;
+      return isOnline ? `🟢 ${name}` : `⚪ ${name}`;
+    }
+
+    return isOnline ? '🟢 网络麦克风' : '⚪ 网络麦克风 (未发现)';
+  }
+
+  private requestAudioDevices(): void {
+    const wins = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed());
+    if (wins.length > 0) {
+      wins[0].webContents.send(IPC_CHANNELS.AUDIO_DEVICES.ENUMERATE);
+    }
   }
 }
 

@@ -7,8 +7,10 @@ import { SILICONFLOW_CONSTANTS } from '../asr/types';
 import type {
   AppSettings,
   AppSettingsUpdate,
+  AudioSourceMode,
   AudioWarmupMode,
   InteractionMode,
+  TranscriptionMode,
 } from '../../../shared/types/settings';
 import { resolveLocale } from '../../../shared/i18n';
 
@@ -58,6 +60,9 @@ function getDefaultSettings(): AppSettings {
       process.env.SILICONFLOW_LANGUAGE ?? SILICONFLOW_CONSTANTS.DEFAULT_LANGUAGE,
     siliconflowBaseUrl:
       process.env.SILICONFLOW_BASE_URL ?? SILICONFLOW_CONSTANTS.DEFAULT_BASE_URL,
+    audioSourceMode: (process.env.AUDIO_SOURCE_MODE as AudioSourceMode) || 'auto',
+    localAudioDeviceId: 'auto',
+    transcriptionMode: (process.env.TRANSCRIPTION_MODE as TranscriptionMode) || 'standard',
   };
 }
 
@@ -67,10 +72,20 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       ? settings.audioWarmupMode
       : 'short';
 
+  const audioSourceMode: AudioSourceMode =
+    settings.audioSourceMode === 'network' || settings.audioSourceMode === 'local'
+      ? settings.audioSourceMode
+      : 'auto';
+
+  const transcriptionMode: TranscriptionMode =
+    settings.transcriptionMode === 'streaming' ? 'streaming' : 'standard';
+
   return {
     ...settings,
     locale: resolveLocale(settings.locale),
     audioWarmupMode: warmupMode,
+    audioSourceMode,
+    transcriptionMode,
   };
 }
 

@@ -5,6 +5,7 @@ type TranslationKey =
   | 'app.title'
   | 'menu.open_settings'
   | 'menu.asr_provider'
+  | 'menu.asr_model'
   | 'menu.interaction_mode'
   | 'menu.siliconflow_model'
   | 'menu.quit'
@@ -35,6 +36,13 @@ type TranslationKey =
   | 'settings.warmup.off'
   | 'settings.warmup.short'
   | 'settings.warmup.extended'
+  | 'menu.audio_source'
+  | 'menu.source.auto'
+  | 'menu.source.network'
+  | 'menu.source.local'
+  | 'menu.transcription_mode'
+  | 'menu.transcription.standard'
+  | 'menu.transcription.streaming'
   | 'error.start_failed'
   | 'error.insert_failed'
   | 'error.connection_failed'
@@ -63,6 +71,7 @@ const translations: Record<AppLocale, TranslationTable> = {
     'app.title': 'Open Typeless',
     'menu.open_settings': '打开设置',
     'menu.asr_provider': '识别提供商',
+    'menu.asr_model': '识别模型',
     'menu.interaction_mode': '交互模式',
     'menu.siliconflow_model': 'Siliconflow 模型',
     'menu.quit': '退出',
@@ -93,6 +102,13 @@ const translations: Record<AppLocale, TranslationTable> = {
     'settings.warmup.off': '关闭，录音后立即释放',
     'settings.warmup.short': '短保温，大约 10 秒',
     'settings.warmup.extended': '长保温，大约 45 秒',
+    'menu.audio_source': '音频输入',
+    'menu.source.auto': '自动（荔枝派优先）',
+    'menu.source.network': '荔枝派麦克风',
+    'menu.source.local': '本地麦克风',
+    'menu.transcription_mode': '转录模式',
+    'menu.transcription.standard': '标准（录完再转）',
+    'menu.transcription.streaming': '流式（边说边转）',
     'error.start_failed': '启动失败：{message}',
     'error.insert_failed': '插入失败：{message}',
     'error.connection_failed': '连接失败：{message}',
@@ -118,6 +134,7 @@ const translations: Record<AppLocale, TranslationTable> = {
     'app.title': 'Open Typeless',
     'menu.open_settings': 'Open Settings',
     'menu.asr_provider': 'ASR Provider',
+    'menu.asr_model': 'ASR Model',
     'menu.interaction_mode': 'Interaction Mode',
     'menu.siliconflow_model': 'Siliconflow Model',
     'menu.quit': 'Quit',
@@ -148,6 +165,13 @@ const translations: Record<AppLocale, TranslationTable> = {
     'settings.warmup.off': 'Off, release immediately',
     'settings.warmup.short': 'Short hold, about 10s',
     'settings.warmup.extended': 'Extended hold, about 45s',
+    'menu.audio_source': 'Audio Input',
+    'menu.source.auto': 'Auto (LicheeRV preferred)',
+    'menu.source.network': 'LicheeRV Nano Mic',
+    'menu.source.local': 'Local Microphone',
+    'menu.transcription_mode': 'Transcription Mode',
+    'menu.transcription.standard': 'Standard (batch after stop)',
+    'menu.transcription.streaming': 'Streaming (sentence by sentence)',
     'error.start_failed': 'Failed to start: {message}',
     'error.insert_failed': 'Insert failed: {message}',
     'error.connection_failed': 'Connection failed: {message}',
@@ -173,6 +197,7 @@ const translations: Record<AppLocale, TranslationTable> = {
     'app.title': 'Open Typeless',
     'menu.open_settings': '設定を開く',
     'menu.asr_provider': 'ASR プロバイダー',
+    'menu.asr_model': 'ASR モデル',
     'menu.interaction_mode': '操作モード',
     'menu.siliconflow_model': 'Siliconflow モデル',
     'menu.quit': '終了',
@@ -203,6 +228,13 @@ const translations: Record<AppLocale, TranslationTable> = {
     'settings.warmup.off': 'オフ、録音後すぐ解放',
     'settings.warmup.short': '短め、約10秒保持',
     'settings.warmup.extended': '長め、約45秒保持',
+    'menu.audio_source': 'オーディオ入力',
+    'menu.source.auto': '自動（LicheeRV優先）',
+    'menu.source.network': 'LicheeRV Nano マイク',
+    'menu.source.local': 'ローカルマイク',
+    'menu.transcription_mode': '文字起こしモード',
+    'menu.transcription.standard': '標準（録音後に変換）',
+    'menu.transcription.streaming': 'ストリーミング（話しながら変換）',
     'error.start_failed': '開始に失敗しました: {message}',
     'error.insert_failed': '挿入に失敗しました: {message}',
     'error.connection_failed': '接続に失敗しました: {message}',
