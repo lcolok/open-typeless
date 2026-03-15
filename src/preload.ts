@@ -210,6 +210,29 @@ const settingsApi = {
   },
 };
 
+// Audio device enumeration — shared helper
+async function enumerateAudioInputs(): Promise<void> {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioInputs = devices
+      .filter((d) => d.kind === 'audioinput')
+      .map((d) => ({ deviceId: d.deviceId, label: d.label || '(unlabeled)' }));
+    ipcRenderer.send(IPC_CHANNELS.AUDIO_DEVICES.LIST, audioInputs);
+  } catch {
+    ipcRenderer.send(IPC_CHANNELS.AUDIO_DEVICES.LIST, []);
+  }
+}
+
+// Respond to explicit enumeration requests from main process
+ipcRenderer.on(IPC_CHANNELS.AUDIO_DEVICES.ENUMERATE, () => {
+  void enumerateAudioInputs();
+});
+
+// Auto-report when devices change (connect/disconnect headphones, etc.)
+navigator.mediaDevices?.addEventListener('devicechange', () => {
+  void enumerateAudioInputs();
+});
+
 // Expose the API to the renderer process
 contextBridge.exposeInMainWorld('api', {
   asr: asrApi,

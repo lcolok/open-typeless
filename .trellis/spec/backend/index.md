@@ -23,6 +23,8 @@ open-typeless is a macOS voice input tool. The backend (main process) handles:
 |-------|-------------|----------|
 | [Global Keyboard Hooks](./global-keyboard-hooks.md) | uiohook-napi for Push-to-Talk detection | HIGH |
 | [Bluetooth HID Device](./bluetooth-hid-device.md) | node-hid for Bluetooth remote control | HIGH |
+| [Network Audio Source](./network-audio-source.md) | LicheeRV Nano WiFi mic → direct ASR injection | HIGH |
+| [Network Audio Discovery](./network-audio-discovery.md) | mDNS auto-discovery, pairing, connection status | HIGH |
 | [Text Input](./text-input.md) | @xitanggg/node-insert-text for text insertion | HIGH |
 | [macOS Permissions](./macos-permissions.md) | Input Monitoring, Accessibility, Microphone | HIGH |
 

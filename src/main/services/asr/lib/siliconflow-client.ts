@@ -2,35 +2,9 @@ import { EventEmitter } from 'events';
 import log from 'electron-log';
 import type { ASRResult, ASRStatus } from '../../../../shared/types/asr';
 import type { ASRClient, BaseASRClientEvents, SiliconflowClientConfig } from '../types';
+import { buildWavBuffer } from './wav';
 
 const logger = log.scope('siliconflow-client');
-
-function buildWavBuffer(
-  pcmData: Buffer,
-  sampleRate = 16000,
-  channels = 1,
-  bitsPerSample = 16,
-): Buffer {
-  const blockAlign = (channels * bitsPerSample) / 8;
-  const byteRate = sampleRate * blockAlign;
-  const header = Buffer.alloc(44);
-
-  header.write('RIFF', 0);
-  header.writeUInt32LE(36 + pcmData.length, 4);
-  header.write('WAVE', 8);
-  header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(channels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write('data', 36);
-  header.writeUInt32LE(pcmData.length, 40);
-
-  return Buffer.concat([header, pcmData]);
-}
 
 export interface SiliconflowClientEvents extends BaseASRClientEvents {}
 
@@ -54,6 +28,8 @@ export class SiliconflowClient extends EventEmitter implements ASRClient {
   private chunks: Buffer[] = [];
   private connected = false;
   private finishing = false;
+  /** WAV buffer preserved from last failed transcription for manual retry */
+  private failedWavBuffer: Buffer | null = null;
 
   constructor(config: SiliconflowClientConfig) {
     super();
@@ -100,30 +76,130 @@ export class SiliconflowClient extends EventEmitter implements ASRClient {
     void this.transcribeBufferedAudio();
   }
 
+  private static readonly MAX_RETRIES = 2;
+  private static readonly RETRY_DELAY_MS = 1000;
+
   private async transcribeBufferedAudio(): Promise<void> {
-    try {
-      const pcmData = Buffer.concat(this.chunks);
-      if (pcmData.length === 0) {
-        this.emit('status', 'done');
-        return;
+    const pcmData = Buffer.concat(this.chunks);
+    logger.info('Transcribing buffered audio', {
+      chunks: this.chunks.length,
+      pcmBytes: pcmData.length,
+      durationMs: Math.round(pcmData.length / 32),
+    });
+
+    if (pcmData.length === 0) {
+      logger.warn('No audio data to transcribe');
+      this.emit('status', 'done');
+      return;
+    }
+
+    // Build WAV once, reuse across retries
+    const wavBuffer = buildWavBuffer(pcmData);
+    const endpoint = new URL(
+      'audio/transcriptions',
+      this.config.baseUrl.endsWith('/') ? this.config.baseUrl : `${this.config.baseUrl}/`,
+    ).toString();
+
+    const headers: Record<string, string> = {};
+    if (this.config.apiKey) {
+      headers.Authorization = `Bearer ${this.config.apiKey}`;
+    }
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= SiliconflowClient.MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        logger.info('Retrying transcription', { attempt, maxRetries: SiliconflowClient.MAX_RETRIES });
+        await new Promise((r) => setTimeout(r, SiliconflowClient.RETRY_DELAY_MS));
       }
 
-      const wavBuffer = buildWavBuffer(pcmData);
+      try {
+        // FormData must be rebuilt per attempt (consumed by fetch)
+        const formData = new FormData();
+        formData.set('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
+        formData.set('model', this.config.model);
+        formData.set('language', this.config.language);
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const body = await response.text();
+          logger.error('Siliconflow HTTP error', { attempt, status: response.status, body: body.slice(0, 500) });
+          lastError = new Error(`Siliconflow request failed: ${response.status} ${response.statusText}`);
+          continue; // retry
+        }
+
+        const payload = (await response.json()) as { text?: string };
+        const text = payload.text?.trim() ?? '';
+        logger.info('Transcription result', { attempt, textLength: text.length, text: text.slice(0, 100) });
+
+        const result: ASRResult = {
+          type: 'final',
+          text,
+          isFinal: true,
+        };
+
+        this.failedWavBuffer = null; // clear on success
+        this.emit('result', result);
+        this.emit('status', 'done');
+        return; // success, no more retries
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        logger.error('Siliconflow transcription attempt failed', { attempt, error: lastError.message });
+      }
+    }
+
+    // All retries exhausted — preserve WAV for manual retry
+    this.failedWavBuffer = wavBuffer;
+    logger.error('Siliconflow transcription failed after all retries, WAV preserved for retry', {
+      error: lastError?.message,
+      wavBytes: wavBuffer.length,
+    });
+    this.emit('error', lastError ?? new Error('Transcription failed'));
+    this.emit('status', 'error');
+  }
+
+  /**
+   * Whether there is a failed transcription that can be retried.
+   */
+  get hasFailedTranscription(): boolean {
+    return this.failedWavBuffer !== null;
+  }
+
+  /**
+   * Retry the last failed transcription using the preserved WAV buffer.
+   * Called when user presses the hotkey again after a failure.
+   */
+  async retryFailedTranscription(): Promise<void> {
+    const wavBuffer = this.failedWavBuffer;
+    if (!wavBuffer) {
+      logger.warn('No failed transcription to retry');
+      return;
+    }
+
+    logger.info('Retrying failed transcription', { wavBytes: wavBuffer.length });
+    this.emit('status', 'processing');
+
+    const endpoint = new URL(
+      'audio/transcriptions',
+      this.config.baseUrl.endsWith('/') ? this.config.baseUrl : `${this.config.baseUrl}/`,
+    ).toString();
+
+    const headers: Record<string, string> = {};
+    if (this.config.apiKey) {
+      headers.Authorization = `Bearer ${this.config.apiKey}`;
+    }
+
+    try {
       const formData = new FormData();
-      const blob = new Blob([wavBuffer], { type: 'audio/wav' });
-      formData.set('file', blob, 'audio.wav');
+      formData.set('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
       formData.set('model', this.config.model);
       formData.set('language', this.config.language);
 
-      const headers: Record<string, string> = {};
-      if (this.config.apiKey) {
-        headers.Authorization = `Bearer ${this.config.apiKey}`;
-      }
-
-      const endpoint = new URL(
-        'audio/transcriptions',
-        this.config.baseUrl.endsWith('/') ? this.config.baseUrl : `${this.config.baseUrl}/`
-      ).toString();
       const response = await fetch(endpoint, {
         method: 'POST',
         headers,
@@ -131,23 +207,21 @@ export class SiliconflowClient extends EventEmitter implements ASRClient {
       });
 
       if (!response.ok) {
-        throw new Error(`Siliconflow request failed: ${response.status} ${response.statusText}`);
+        const body = await response.text();
+        throw new Error(`Retry failed: ${response.status} ${body.slice(0, 200)}`);
       }
 
       const payload = (await response.json()) as { text?: string };
       const text = payload.text?.trim() ?? '';
+      logger.info('Retry transcription result', { textLength: text.length, text: text.slice(0, 100) });
 
-      const result: ASRResult = {
-        type: 'final',
-        text,
-        isFinal: true,
-      };
-
-      this.emit('result', result);
+      this.failedWavBuffer = null;
+      this.emit('result', { type: 'final', text, isFinal: true });
       this.emit('status', 'done');
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      logger.error('Siliconflow transcription failed', { error: err.message });
+      logger.error('Retry transcription failed', { error: err.message });
+      // Keep failedWavBuffer for another retry attempt
       this.emit('error', err);
       this.emit('status', 'error');
     }

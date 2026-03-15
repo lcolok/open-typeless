@@ -65,6 +65,8 @@ export class ASRService extends EventEmitter {
   private finalResult: ASRResult | null = null;
   private lastResult: ASRResult | null = null;
   private sessionGeneration = 0;
+  /** SiliconFlow client preserved from last failed session for retry */
+  private failedClient: SiliconflowClient | null = null;
 
   /**
    * Get current ASR status.
@@ -175,6 +177,40 @@ export class ASRService extends EventEmitter {
 
     this.cleanup();
     return this.finalResult;
+  }
+
+  /**
+   * Whether there is a failed transcription that can be retried
+   * by pressing the hotkey again.
+   */
+  get hasFailedTranscription(): boolean {
+    return this.failedClient?.hasFailedTranscription ?? false;
+  }
+
+  /**
+   * Retry the last failed transcription without re-recording.
+   */
+  async retryFailedTranscription(): Promise<ASRResult | null> {
+    if (!this.failedClient?.hasFailedTranscription) {
+      return null;
+    }
+
+    logger.info('Retrying failed transcription');
+    this.reset();
+    const generation = ++this.sessionGeneration;
+    const client = this.failedClient;
+    this.failedClient = null;
+
+    // Setup listeners for retry
+    this.setupClientListeners(client, generation);
+    this.updateStatus('processing');
+
+    await client.retryFailedTranscription();
+
+    const result = await this.waitForFinalResult();
+    client.removeAllListeners();
+    this.updateStatus('idle');
+    return result;
   }
 
   /**
@@ -316,6 +352,16 @@ export class ASRService extends EventEmitter {
    */
   private cleanup(): void {
     this.sessionGeneration += 1;
+
+    // Preserve SiliconFlow client if it has a failed transcription for retry
+    if (this.client instanceof SiliconflowClient && this.client.hasFailedTranscription) {
+      this.failedClient = this.client;
+      this.client.removeAllListeners();
+      logger.info('Preserved failed SiliconFlow client for retry');
+    } else {
+      this.failedClient = null;
+    }
+
     if (this.client) {
       this.client.removeAllListeners();
       this.client.disconnect();

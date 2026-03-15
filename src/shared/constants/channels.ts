@@ -28,6 +28,12 @@ export const IPC_CHANNELS = {
     /** ASR error (Main -> Renderer) */
     ERROR: 'asr:error',
   },
+  AUDIO_DEVICES: {
+    /** Request device enumeration (Main -> Renderer) */
+    ENUMERATE: 'audio-devices:enumerate',
+    /** Device list response (Renderer -> Main) */
+    LIST: 'audio-devices:list',
+  },
   SETTINGS: {
     GET: 'settings:get',
     UPDATE: 'settings:update',

@@ -13,6 +13,7 @@ import log from 'electron-log';
 import { keyboardService } from '../keyboard';
 import { textInputService } from '../text-input';
 import { asrService } from '../asr';
+import { networkAudioSource } from '../network-audio-source';
 import { permissionsService } from '../permissions';
 import { settingsService } from '../settings';
 import { floatingWindow, settingsWindow } from '../../windows';
@@ -99,6 +100,15 @@ export class PushToTalkService {
 
     // Log permission status for debugging
     permissionsService.logPermissionStatus();
+
+    // Register streaming transcription callback — insert text as each sentence is recognized
+    networkAudioSource.onStreamingResult((text, idx) => {
+      if (!this.isActive) return;
+      if (settingsService.getSettings().transcriptionMode !== 'streaming') return;
+      logger.info('Streaming segment result', { index: idx, textLength: text.length });
+      textInputService.insert(text);
+      floatingWindow.sendResult({ type: 'final', text, isFinal: false });
+    });
 
     // Register keyboard hooks
     keyboardService.register(
@@ -213,6 +223,31 @@ export class PushToTalkService {
     try {
       this.broadcastPerfContext();
 
+      // Check if there's a failed transcription to retry
+      if (asrService.hasFailedTranscription) {
+        logger.info('Retrying last failed transcription');
+        this.logPerf('retry_failed_transcription');
+        floatingWindow.sendStatus('processing');
+
+        const result = await asrService.retryFailedTranscription();
+        if (result && result.text) {
+          floatingWindow.sendResult(result);
+          floatingWindow.sendStatus('done');
+          floatingWindow.hide();
+          if (this.config.autoInsertText) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            textInputService.insert(result.text);
+          }
+        } else {
+          floatingWindow.hide();
+        }
+
+        this.isActive = false;
+        this.logPerf('retry_completed');
+        this.clearPerfContext();
+        return;
+      }
+
       // Show floating window with listening status
       this.logPerf('floating_status_connecting_send');
       floatingWindow.sendStatus('connecting');
@@ -226,9 +261,37 @@ export class PushToTalkService {
       this.logPerf('floating_status_listening_send');
       floatingWindow.sendStatus('listening');
 
-      // Notify renderer to start recording
-      this.notifyRendererStartRecording();
-      this.logPerf('renderer_start_notified');
+      // Select audio source based on settings
+      const audioSourceMode = settingsService.getSettings().audioSourceMode;
+      const useNetwork =
+        audioSourceMode === 'network' ||
+        (audioSourceMode === 'auto' && networkAudioSource.isReceiving);
+
+      if (useNetwork && networkAudioSource.isReceiving) {
+        networkAudioSource.activate();
+        this.logPerf('network_audio_activated');
+        logger.info('Using network audio source (LicheeRV Nano)');
+
+        // IMPORTANT: The ASR status broadcast already sent 'listening' to renderer,
+        // which triggers its AudioRecorder. We must immediately tell renderer to
+        // NOT record, otherwise two audio sources feed ASR simultaneously.
+        this.notifyRendererStopRecording();
+
+        // Signal capture ready directly — no renderer AudioRecorder involved,
+        // so we must emit CAPTURE_READY ourselves for the floating window.
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send(IPC_CHANNELS.ASR.CAPTURE_READY, true);
+          }
+        }
+      } else {
+        // Notify renderer to start recording from local microphone
+        this.notifyRendererStartRecording();
+        this.logPerf('renderer_start_notified');
+        if (audioSourceMode === 'network') {
+          logger.warn('Network audio source selected but board is not streaming, falling back to local mic');
+        }
+      }
 
       logger.info('Push-to-talk session started');
     } catch (error) {
@@ -260,63 +323,75 @@ export class PushToTalkService {
       this.logPerf('floating_status_processing_send');
       floatingWindow.sendStatus('processing');
 
-      // Notify renderer to stop recording
+      // Stop audio sources
+      const isStreaming = settingsService.getSettings().transcriptionMode === 'streaming'
+        && networkAudioSource.isReceiving;
+      networkAudioSource.deactivate();
       this.notifyRendererStopRecording();
       this.logPerf('renderer_stop_notified');
 
-      // Stop ASR and get final result
-      this.logPerf('asr_stop_requested');
-      const result = await asrService.stop();
-      this.logPerf('asr_stop_completed', {
-        hasResult: Boolean(result?.text),
-        textLength: result?.text.length ?? 0,
-      });
+      if (isStreaming) {
+        // Streaming mode: segments were already transcribed and inserted.
+        // Just clean up ASR session without doing a final batch transcription.
+        asrService.stop().catch(() => { /* ignore cleanup errors */ });
+        this.logPerf('streaming_session_done');
+        floatingWindow.sendStatus('done');
 
-      if (result && result.text) {
-        logger.info('ASR result received', {
-          textLength: result.text.length,
-          isFinal: result.isFinal,
+        await new Promise(resolve => setTimeout(resolve, 300));
+        floatingWindow.hide();
+      } else {
+        // Standard mode: batch transcription after recording stops
+        this.logPerf('asr_stop_requested');
+        const result = await asrService.stop();
+        this.logPerf('asr_stop_completed', {
+          hasResult: Boolean(result?.text),
+          textLength: result?.text.length ?? 0,
         });
 
-        // Send result to floating window
-        floatingWindow.sendResult(result);
-        floatingWindow.sendStatus('done');
-        this.logPerf('result_displayed');
-
-        // IMPORTANT: Hide floating window FIRST to return focus to the previous app
-        // Then wait a bit for the focus to switch before inserting text
-        floatingWindow.hide();
-        this.logPerf('floating_hidden_for_insert');
-
-        // Insert text at cursor position after focus returns
-        if (this.config.autoInsertText) {
-          // Wait for focus to return to the previous application
-          await new Promise(resolve => setTimeout(resolve, 100));
-
-          const insertResult = textInputService.insert(result.text);
-          this.logPerf('text_insert_attempted', {
-            success: insertResult.success,
+        if (result && result.text) {
+          logger.info('ASR result received', {
+            textLength: result.text.length,
+            isFinal: result.isFinal,
           });
 
-          if (!insertResult.success) {
-            logger.error('Failed to insert text', { error: insertResult.error });
-            // Show error briefly
-            const insertErrorMessage = insertResult.error ?? 'Unknown error';
-            floatingWindow.sendError(
-              t(settingsService.getSettings().locale, 'error.insert_failed', {
-                message: insertErrorMessage,
-              })
-            );
-          } else {
-            logger.info('Text inserted successfully');
-            this.logPerf('text_insert_completed');
+          // Send result to floating window
+          floatingWindow.sendResult(result);
+          floatingWindow.sendStatus('done');
+          this.logPerf('result_displayed');
+
+          // IMPORTANT: Hide floating window FIRST to return focus to the previous app
+          // Then wait a bit for the focus to switch before inserting text
+          floatingWindow.hide();
+          this.logPerf('floating_hidden_for_insert');
+
+          // Insert text at cursor position after focus returns
+          if (this.config.autoInsertText) {
+            // Wait for focus to return to the previous application
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            const insertResult = textInputService.insert(result.text);
+            this.logPerf('text_insert_attempted', {
+              success: insertResult.success,
+            });
+
+            if (!insertResult.success) {
+              logger.error('Failed to insert text', { error: insertResult.error });
+              const insertErrorMessage = insertResult.error ?? 'Unknown error';
+              floatingWindow.sendError(
+                t(settingsService.getSettings().locale, 'error.insert_failed', {
+                  message: insertErrorMessage,
+                })
+              );
+            } else {
+              logger.info('Text inserted successfully');
+              this.logPerf('text_insert_completed');
+            }
           }
+        } else {
+          logger.info('No ASR result to insert');
+          floatingWindow.hide();
+          this.logPerf('no_result_hide_window');
         }
-      } else {
-        logger.info('No ASR result to insert');
-        // Hide floating window
-        floatingWindow.hide();
-        this.logPerf('no_result_hide_window');
       }
 
       logger.info('Push-to-talk session completed');

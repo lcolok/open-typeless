@@ -54,3 +54,7 @@ export { MenuBarService, menuBarService } from './menu-bar';
 // Push-to-Talk Service
 export { PushToTalkService, pushToTalkService } from './push-to-talk';
 export type { PushToTalkConfig } from './push-to-talk';
+
+// Network Audio Source Service (LicheeRV Nano WiFi mic)
+export { NetworkAudioSourceService, networkAudioSource } from './network-audio-source';
+export { AudioDiscoveryService, audioDiscovery } from './network-audio-source';

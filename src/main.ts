@@ -4,7 +4,7 @@ import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { setupAllIpcHandlers } from './main/ipc';
 import { floatingWindow, settingsWindow } from './main/windows';
-import { menuBarService, pushToTalkService } from './main/services';
+import { menuBarService, pushToTalkService, networkAudioSource, audioDiscovery } from './main/services';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -46,6 +46,10 @@ const createWindow = async () => {
 
   // Initialize push-to-talk service after windows are created
   pushToTalkService.initialize();
+
+  // Start network audio source and device discovery
+  networkAudioSource.start();
+  audioDiscovery.start();
 };
 
 // This method will be called when Electron has finished
@@ -66,6 +70,8 @@ app.on('window-all-closed', () => {
 
 // Cleanup function for graceful shutdown
 function cleanup(): void {
+  audioDiscovery.stop();
+  networkAudioSource.stop();
   pushToTalkService.dispose();
   floatingWindow.destroy();
   settingsWindow.destroy();
