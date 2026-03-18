@@ -33,12 +33,12 @@ import { IPC_CHANNELS } from '../../shared/constants/channels';
 const FLOATING_WINDOW_CONFIG = {
   /** Window width in pixels */
   WIDTH: 320,
-  /** Minimum window height (chrome + single line) */
+  /** Minimum window height (status bar only, no transcript) */
   MIN_HEIGHT: 58,
-  /** Maximum window height (chrome + 4 lines) */
-  MAX_HEIGHT: 112,
-  /** Fixed chrome height (padding + status bar + gap) */
-  CHROME_HEIGHT: 40,
+  /** Maximum window height */
+  MAX_HEIGHT: 160,
+  /** Fixed chrome height (padding 10+6 + status bar ~30 + detail ~14 + gap 6 + border 1) */
+  CHROME_HEIGHT: 67,
   /** Single line height (14px font × 1.25 line-height ≈ 18px) */
   LINE_HEIGHT: 18,
   /** Distance from bottom of screen (px) */
@@ -297,11 +297,11 @@ export class FloatingWindowManager {
 
     // Calculate target window height based on content height
     let targetHeight: number;
-    if (contentHeight <= LINE_HEIGHT) {
-      // Single line or empty: use minimum height
+    if (contentHeight <= 0) {
+      // No transcript text: use minimum height (status bar only)
       targetHeight = MIN_HEIGHT;
     } else {
-      // Multiple lines: chrome + content, capped at max
+      // Has text: chrome + content, capped at max
       targetHeight = Math.min(CHROME_HEIGHT + contentHeight, MAX_HEIGHT);
     }
 

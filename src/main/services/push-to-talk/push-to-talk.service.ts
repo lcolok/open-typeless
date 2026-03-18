@@ -107,7 +107,7 @@ export class PushToTalkService {
       if (settingsService.getSettings().transcriptionMode !== 'streaming') return;
       logger.info('Streaming segment result', { index: idx, textLength: text.length });
       textInputService.insert(text);
-      floatingWindow.sendResult({ type: 'final', text, isFinal: false });
+      floatingWindow.sendResult({ type: 'final', text, isFinal: true });
     });
 
     // Register keyboard hooks
@@ -297,7 +297,7 @@ export class PushToTalkService {
             if (!this.isActive) return;
             logger.info('Streaming segment result (local mic)', { index: idx, textLength: text.length });
             textInputService.insert(text);
-            floatingWindow.sendResult({ type: 'final', text, isFinal: false });
+            floatingWindow.sendResult({ type: 'final', text, isFinal: true });
           });
         }
 

@@ -58,9 +58,10 @@ body {
   border-radius: 10px;
 
   /* Layout - match design spec */
+  /* min-height: status bar (~23px) + gap (6px) + one text line (18px) + padding (16px) = 63px */
   width: 320px;
   min-height: 58px;
-  max-height: 112px;
+  max-height: 160px;
   /* paddingTop: 10px, paddingBottom: 6px, left: 12px, right: 16px (extra for vibrancy edge) */
   padding: 10px 16px 6px 12px;
   /* Use clip instead of hidden to prevent content clipping at edges */
@@ -250,8 +251,8 @@ body {
   /* Font: 14px with line-height 1.25 = 18px per line */
   font-size: 14px;
   line-height: 1.25;
-  /* Max height: 4 lines × 18px = 72px */
-  max-height: 72px;
+  /* Max height: 5 lines × 18px = 90px */
+  max-height: 90px;
   overflow-y: auto;
   overflow-x: hidden;
   scroll-behavior: smooth;
