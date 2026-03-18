@@ -1,4 +1,9 @@
 import 'dotenv/config';
+
+// Suppress EPIPE errors when stdout/stderr is closed (packaged app has no terminal)
+process.stdout?.on?.('error', () => {});
+process.stderr?.on?.('error', () => {});
+
 import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
@@ -57,13 +62,16 @@ const createWindow = async () => {
 // Some APIs can only be used after this event occurs.
 app.on('ready', () => {
   // Enable auto-start on login (macOS: adds to Login Items)
-  if (!app.isPackaged) {
-    // Dev mode: skip login item (would register electron binary)
-  } else {
-    app.setLoginItemSettings({
-      openAtLogin: true,
-      openAsHidden: true,
-    });
+  // Requires code-signed app; silently skip if not permitted.
+  if (app.isPackaged) {
+    try {
+      app.setLoginItemSettings({
+        openAtLogin: true,
+        openAsHidden: true,
+      });
+    } catch {
+      // Unsigned app — login item registration not allowed
+    }
   }
 
   void createWindow();

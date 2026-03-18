@@ -14,6 +14,7 @@ import { cp, mkdir } from 'fs/promises';
 const nativeModules = [
   'uiohook-napi',
   '@xitanggg/node-insert-text',
+  '@xitanggg/node-insert-text-darwin-arm64',
   // Dependencies
   'node-gyp-build',
 ];

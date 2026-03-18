@@ -8,8 +8,7 @@ export default defineConfig({
         // Native modules that should not be bundled
         'uiohook-napi',
         '@xitanggg/node-insert-text',
-        // ws and its optional native dependencies
-        'ws',
+        // Optional native accelerators for ws (pure JS fallback is fine)
         'bufferutil',
         'utf-8-validate',
       ],
