@@ -289,6 +289,17 @@ export class MenuBarService {
           },
         ],
       },
+      {
+        label: locale === 'zh' ? '开机自启' : locale === 'ja' ? 'ログイン時に起動' : 'Start at Login',
+        type: 'checkbox',
+        checked: app.getLoginItemSettings().openAtLogin,
+        click: (menuItem) => {
+          app.setLoginItemSettings({
+            openAtLogin: menuItem.checked,
+            openAsHidden: true,
+          });
+        },
+      },
       { type: 'separator' },
       {
         label: t(locale, 'menu.quit'),
