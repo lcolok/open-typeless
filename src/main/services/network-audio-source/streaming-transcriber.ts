@@ -12,13 +12,16 @@ import { settingsService } from '../settings';
 
 const logger = log.scope('streaming-transcriber');
 
-// VAD parameters — tuned to avoid false cuts during language switching.
-// Longer silence threshold reduces mid-sentence splits when mixing Chinese/English.
-const SILENCE_RMS_THRESHOLD = 200;     // Below this RMS = silence (stricter = fewer false silences)
-const SILENCE_DURATION_MS = 1200;      // 1.2s of silence = sentence boundary (was 600ms)
-const MIN_SEGMENT_MS = 1500;           // Ignore segments shorter than 1.5s (was 500ms)
+// VAD parameters
+const SILENCE_DURATION_MS = 1200;      // 1.2s of silence = sentence boundary
+const MIN_SEGMENT_MS = 1500;           // Ignore segments shorter than 1.5s
 const SAMPLE_RATE = 16000;
 const BYTES_PER_MS = (SAMPLE_RATE * 2) / 1000; // 32 bytes/ms
+
+// Adaptive noise floor calibration
+const CALIBRATION_MS = 500;            // Measure noise floor for first 500ms
+const NOISE_MULTIPLIER = 3;            // Silence threshold = noise_floor * 3
+const DEFAULT_SILENCE_THRESHOLD = 200; // Fallback before calibration completes
 
 export interface StreamingTranscriberEvents {
   /** Emitted when a segment is transcribed */
@@ -43,6 +46,12 @@ export class StreamingTranscriber extends EventEmitter {
   private segmentIndex = 0;
   private inFlightCount = 0;
   private active = false;
+  private feedCount = 0;
+  // Adaptive noise floor
+  private calibrationSamples: number[] = [];
+  private calibrationMs = 0;
+  private calibrated = false;
+  private silenceThreshold = DEFAULT_SILENCE_THRESHOLD;
 
   /**
    * Start a new streaming session.
@@ -53,8 +62,13 @@ export class StreamingTranscriber extends EventEmitter {
     this.silentMs = 0;
     this.segmentIndex = 0;
     this.inFlightCount = 0;
+    this.feedCount = 0;
+    this.calibrationSamples = [];
+    this.calibrationMs = 0;
+    this.calibrated = false;
+    this.silenceThreshold = DEFAULT_SILENCE_THRESHOLD;
     this.active = true;
-    logger.info('Streaming transcriber started');
+    logger.info('Streaming transcriber started, calibrating noise floor...');
   }
 
   /**
@@ -76,7 +90,9 @@ export class StreamingTranscriber extends EventEmitter {
   }
 
   /**
-   * Feed a downsampled 16kHz PCM chunk. Called per UDP packet.
+   * Feed a downsampled 16kHz PCM chunk. Works with any chunk size —
+   * splits large chunks (e.g., 4096 samples from ScriptProcessorNode)
+   * into 10ms windows for accurate VAD detection.
    */
   feed(pcm16k: Buffer): void {
     if (!this.active) return;
@@ -84,24 +100,50 @@ export class StreamingTranscriber extends EventEmitter {
     this.chunks.push(pcm16k);
     this.chunkBytes += pcm16k.byteLength;
 
-    // Compute RMS for VAD
-    const samples = Math.floor(pcm16k.byteLength / 2);
-    let sumSq = 0;
-    for (let i = 0; i < samples; i++) {
-      const s = pcm16k.readInt16LE(i * 2);
-      sumSq += s * s;
-    }
-    const rms = Math.sqrt(sumSq / Math.max(samples, 1));
+    // Process in 10ms sub-windows (160 samples @ 16kHz = 320 bytes)
+    const WINDOW_SAMPLES = 160;
+    const totalSamples = Math.floor(pcm16k.byteLength / 2);
 
-    if (rms < SILENCE_RMS_THRESHOLD) {
-      // 10ms per packet (960 bytes @ 48kHz → 320 bytes @ 16kHz → 10ms)
-      this.silentMs += 10;
-
-      if (this.silentMs >= SILENCE_DURATION_MS && this.chunkBytes >= MIN_SEGMENT_MS * BYTES_PER_MS) {
-        this.flushSegment();
+    for (let offset = 0; offset + WINDOW_SAMPLES <= totalSamples; offset += WINDOW_SAMPLES) {
+      let sumSq = 0;
+      for (let i = 0; i < WINDOW_SAMPLES; i++) {
+        const s = pcm16k.readInt16LE((offset + i) * 2);
+        sumSq += s * s;
       }
-    } else {
-      this.silentMs = 0;
+      const rms = Math.sqrt(sumSq / WINDOW_SAMPLES);
+
+      // Calibrate noise floor from first 500ms of audio
+      if (!this.calibrated) {
+        this.calibrationSamples.push(rms);
+        this.calibrationMs += 10;
+        if (this.calibrationMs >= CALIBRATION_MS) {
+          const avgNoise = this.calibrationSamples.reduce((a, b) => a + b, 0)
+            / this.calibrationSamples.length;
+          this.silenceThreshold = Math.max(avgNoise * NOISE_MULTIPLIER, 50);
+          this.calibrated = true;
+          logger.info('Noise floor calibrated', {
+            avgNoise: Math.round(avgNoise),
+            threshold: Math.round(this.silenceThreshold),
+            samples: this.calibrationSamples.length,
+          });
+          this.calibrationSamples = []; // free memory
+        }
+        continue; // don't do VAD during calibration
+      }
+
+      if (this.feedCount++ % 200 === 0) {
+        logger.debug('VAD', { rms: Math.round(rms), threshold: Math.round(this.silenceThreshold), silentMs: this.silentMs });
+      }
+
+      if (rms < this.silenceThreshold) {
+        this.silentMs += 10;
+
+        if (this.silentMs >= SILENCE_DURATION_MS && this.chunkBytes >= MIN_SEGMENT_MS * BYTES_PER_MS) {
+          this.flushSegment();
+        }
+      } else {
+        this.silentMs = 0;
+      }
     }
   }
 
@@ -179,3 +221,6 @@ export class StreamingTranscriber extends EventEmitter {
     }
   }
 }
+
+export const streamingTranscriber = new StreamingTranscriber();
+

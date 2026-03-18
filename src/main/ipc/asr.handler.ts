@@ -8,6 +8,8 @@ import log from 'electron-log';
 import { IPC_CHANNELS } from '../../shared/constants/channels';
 import { asrService } from '../services/asr/asr.service';
 import { startASR, stopASR } from '../services/asr/procedures';
+import { settingsService } from '../services/settings';
+import { streamingTranscriber } from '../services/network-audio-source';
 import type { ASRConfig, ASRPerfEvent } from '../../shared/types/asr';
 
 const logger = log.scope('asr-handler');
@@ -50,7 +52,7 @@ export function setupASRHandlers(): void {
     return stopASR();
   });
 
-  // Handle incoming audio data from renderer
+  // Handle incoming audio data from renderer (local microphone)
   let audioChunkCount = 0;
   ipcMain.on(IPC_CHANNELS.ASR.SEND_AUDIO, (_event, chunk: ArrayBuffer) => {
     audioChunkCount++;
@@ -61,6 +63,11 @@ export function setupASRHandlers(): void {
       });
     }
     asrService.processAudioChunk(chunk);
+
+    // Feed streaming transcriber for local mic too (already 16kHz from renderer)
+    if (settingsService.getSettings().transcriptionMode === 'streaming') {
+      streamingTranscriber.feed(Buffer.from(chunk));
+    }
   });
 
   ipcMain.on(IPC_CHANNELS.ASR.LEVEL, (_event, level: number) => {

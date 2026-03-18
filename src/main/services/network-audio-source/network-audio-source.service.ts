@@ -15,7 +15,7 @@ import log from 'electron-log';
 import { asrService } from '../asr';
 import { settingsService } from '../settings';
 import { IPC_CHANNELS } from '../../../shared/constants/channels';
-import { StreamingTranscriber } from './streaming-transcriber';
+import { streamingTranscriber } from './streaming-transcriber';
 
 const logger = log.scope('network-audio-source');
 
@@ -115,7 +115,6 @@ export class NetworkAudioSourceService {
   private lastPacketTime = 0;
   private livenessTimer: ReturnType<typeof setInterval> | null = null;
   private spectrumTimer: ReturnType<typeof setInterval> | null = null;
-  private streamingTranscriber = new StreamingTranscriber();
   private onSegmentResult: ((text: string, index: number) => void) | null = null;
 
   get isReceiving(): boolean {
@@ -147,7 +146,7 @@ export class NetworkAudioSourceService {
 
       // Feed streaming transcriber if in streaming mode
       if (settingsService.getSettings().transcriptionMode === 'streaming') {
-        this.streamingTranscriber.feed(pcm16k);
+        streamingTranscriber.feed(pcm16k);
       }
     });
 
@@ -194,9 +193,9 @@ export class NetworkAudioSourceService {
   activate(): void {
     this.active = true;
     this.startSpectrumTimer();
-    this.streamingTranscriber.start();
-    this.streamingTranscriber.removeAllListeners();
-    this.streamingTranscriber.on('segment-result', (text, idx) => {
+    streamingTranscriber.start();
+    streamingTranscriber.removeAllListeners();
+    streamingTranscriber.on('segment-result', (text, idx) => {
       this.onSegmentResult?.(text, idx);
     });
     logger.info('Network audio source activated');
@@ -204,7 +203,7 @@ export class NetworkAudioSourceService {
 
   deactivate(): void {
     this.active = false;
-    this.streamingTranscriber.stop();
+    streamingTranscriber.stop();
     this.stopSpectrumTimer();
 
     // Clear visualization

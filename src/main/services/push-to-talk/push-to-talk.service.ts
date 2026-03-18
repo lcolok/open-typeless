@@ -13,7 +13,7 @@ import log from 'electron-log';
 import { keyboardService } from '../keyboard';
 import { textInputService } from '../text-input';
 import { asrService } from '../asr';
-import { networkAudioSource } from '../network-audio-source';
+import { networkAudioSource, streamingTranscriber } from '../network-audio-source';
 import { permissionsService } from '../permissions';
 import { settingsService } from '../settings';
 import { floatingWindow, settingsWindow } from '../../windows';
@@ -288,6 +288,19 @@ export class PushToTalkService {
         // Notify renderer to start recording from local microphone
         this.notifyRendererStartRecording();
         this.logPerf('renderer_start_notified');
+
+        // Start streaming transcriber for local mic if in streaming mode
+        if (settingsService.getSettings().transcriptionMode === 'streaming') {
+          streamingTranscriber.start();
+          streamingTranscriber.removeAllListeners();
+          streamingTranscriber.on('segment-result', (text, idx) => {
+            if (!this.isActive) return;
+            logger.info('Streaming segment result (local mic)', { index: idx, textLength: text.length });
+            textInputService.insert(text);
+            floatingWindow.sendResult({ type: 'final', text, isFinal: false });
+          });
+        }
+
         if (audioSourceMode === 'network') {
           logger.warn('Network audio source selected but board is not streaming, falling back to local mic');
         }
@@ -324,9 +337,9 @@ export class PushToTalkService {
       floatingWindow.sendStatus('processing');
 
       // Stop audio sources
-      const isStreaming = settingsService.getSettings().transcriptionMode === 'streaming'
-        && networkAudioSource.isReceiving;
+      const isStreaming = settingsService.getSettings().transcriptionMode === 'streaming';
       networkAudioSource.deactivate();
+      streamingTranscriber.stop();
       this.notifyRendererStopRecording();
       this.logPerf('renderer_stop_notified');
 
