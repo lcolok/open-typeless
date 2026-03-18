@@ -14,6 +14,9 @@ const logger = log.scope('menu-bar-service');
 
 function resolveTrayIconPath(): string | null {
   const candidates = [
+    // Packaged app: extraResource copies to Resources/tray/
+    path.join(process.resourcesPath, 'tray', 'ot-monogramTemplate.png'),
+    // Dev mode
     path.join(process.cwd(), 'assets', 'tray', 'ot-monogramTemplate.png'),
     path.join(app.getAppPath(), 'assets', 'tray', 'ot-monogramTemplate.png'),
     path.resolve(app.getAppPath(), '..', 'assets', 'tray', 'ot-monogramTemplate.png'),
