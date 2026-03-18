@@ -27,6 +27,7 @@ open-typeless is a macOS voice input tool. The backend (main process) handles:
 | [Network Audio Discovery](./network-audio-discovery.md) | mDNS auto-discovery, pairing, connection status | HIGH |
 | [Text Input](./text-input.md) | @xitanggg/node-insert-text for text insertion | HIGH |
 | [macOS Permissions](./macos-permissions.md) | Input Monitoring, Accessibility, Microphone | HIGH |
+| [Electron Packaging](./electron-packaging.md) | Build, native modules, EPIPE, permissions, process safety | HIGH |
 
 ### Architecture
 
